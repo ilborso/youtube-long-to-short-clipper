@@ -4,11 +4,19 @@ FROM apify/actor-python:3.11
 # Switch to root to install system-level dependencies
 USER root
 
-# Install ffmpeg and build tools required for audio processing
+# Install system dependencies, ffmpeg, and build tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    unzip \
     ffmpeg \
     libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Deno (official JavaScript runtime required by yt-dlp for EJS challenge solver)
+ENV DENO_INSTALL=/usr/local
+RUN curl -fsSL https://deno.land/install.sh | sh \
+    && chmod 755 /usr/local/bin/deno \
+    && deno --version
 
 # Switch back to non-root user
 USER myuser

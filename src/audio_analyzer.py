@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -91,6 +93,62 @@ def _zero_crossing_rate(samples: np.ndarray) -> float:
 # Audio extraction via yt-dlp
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Helpers for proxy rotation & cookies
+# ---------------------------------------------------------------------------
+
+def _rotate_proxy_session(proxy_url: str | None, retry_num: int) -> str | None:
+    """Rotate the session ID in the Apify Residential Proxy URL to get a fresh IP."""
+    if not proxy_url:
+        return None
+    session_tag = f"session-retry{retry_num}_{int(time.time())}"
+    if "session-" in proxy_url:
+        return re.sub(r"session-[^,:]+", session_tag, proxy_url)
+    if "groups-RESIDENTIAL" in proxy_url:
+        return proxy_url.replace("groups-RESIDENTIAL", f"groups-RESIDENTIAL,{session_tag}")
+    return proxy_url
+
+
+def _get_cookie_args() -> list[str]:
+    """Return yt-dlp cookie arguments if cookies are configured."""
+    candidates = [
+        "cookies.txt",
+        os.path.join(os.getcwd(), "cookies.txt"),
+        "/usr/src/app/cookies.txt",
+    ]
+    for p in candidates:
+        if os.path.exists(p) and os.path.getsize(p) > 10:
+            return ["--cookies", p]
+
+    raw_cookies = os.environ.get("YOUTUBE_COOKIES", "").strip()
+    if raw_cookies:
+        tmp_c = os.path.join(tempfile.gettempdir(), "yt_cookies.txt")
+        try:
+            with open(tmp_c, "w", encoding="utf-8") as f:
+                f.write(raw_cookies)
+            return ["--cookies", tmp_c]
+        except Exception:
+            pass
+
+    b64_cookies = os.environ.get("YOUTUBE_COOKIES_BASE64", "").strip()
+    if b64_cookies:
+        try:
+            import base64
+            decoded = base64.b64decode(b64_cookies).decode("utf-8", errors="ignore")
+            tmp_c = os.path.join(tempfile.gettempdir(), "yt_cookies.txt")
+            with open(tmp_c, "w", encoding="utf-8") as f:
+                f.write(decoded)
+            return ["--cookies", tmp_c]
+        except Exception:
+            pass
+
+    return []
+
+
+# ---------------------------------------------------------------------------
+# Audio extraction via yt-dlp
+# ---------------------------------------------------------------------------
+
 def download_audio_stream(
     video_url: str, output_dir: str, proxy_url: str | None = None
 ) -> str:
@@ -98,56 +156,98 @@ def download_audio_stream(
     Download the lowest-bitrate audio-only stream as a WAV file.
     Uses yt-dlp + ffmpeg post-processing to get mono 22 kHz WAV.
     Guarantees NO video stream is downloaded to minimize proxy bandwidth usage.
+    Implements retries with proxy session rotation and alternative player clients
+    to bypass 429 rate limits and bot challenges.
     Returns the path to the output file.
     """
     output_path = os.path.join(output_dir, "audio.wav")
 
-    cmd = [
-        "yt-dlp",
-        "--no-playlist",
-        "--no-check-certificate",
-        # Select worst (smallest) audio-only stream for proxy bandwidth savings (strictly vcodec=none)
-        "-f", "worstaudio",
-        # Post-process to mono WAV at target sample rate
-        "--postprocessor-args",
-        f"ffmpeg:-ac 1 -ar {SAMPLE_RATE}",
-        "-x",  # extract audio only
-        "--audio-format", "wav",
-        "-o", output_path,
+    # Client strategies for bypassing YouTube bot checks:
+    # android client bypasses desktop bot wall and doesn't require web cookies
+    client_strategies = [
+        ["android", "mweb", "web"],
+        ["mweb", "web"],
+        ["ios", "web"],
     ]
-    if proxy_url:
-        cmd.extend(["--proxy", proxy_url])
-    cmd.append(video_url)
 
-    Actor.log.info(f"[AudioAnalyzer] Downloading audio stream (audio-only): {' '.join(cmd[:6])}...")
+    last_error = ""
+    current_proxy = proxy_url
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=600,  # 10 min timeout
-    )
+    for attempt in range(1, 4):
+        # Clean up any partial output from previous attempt
+        for f in os.listdir(output_dir):
+            if f.endswith(".wav") or f.endswith(".part") or f.endswith(".ytdl"):
+                try:
+                    os.remove(os.path.join(output_dir, f))
+                except OSError:
+                    pass
 
-    if result.returncode != 0:
-        Actor.log.error(f"[AudioAnalyzer] yt-dlp stderr: {result.stderr[:1000]}")
-        raise RuntimeError(f"yt-dlp audio download failed (exit {result.returncode})")
+        # If retrying, rotate proxy session to get a fresh clean residential IP
+        if attempt > 1 and current_proxy:
+            current_proxy = _rotate_proxy_session(proxy_url, attempt)
+            Actor.log.info(
+                f"[AudioAnalyzer] Attempt {attempt}/3: Retrying with rotated proxy session..."
+            )
+            time.sleep(2 * attempt)
 
-    # yt-dlp may append .wav again – find the actual file
-    if os.path.exists(output_path):
-        return output_path
+        player_clients = ",".join(client_strategies[attempt - 1])
 
-    # Check for double extension (audio.wav.wav)
-    double_ext = output_path + ".wav"
-    if os.path.exists(double_ext):
-        os.rename(double_ext, output_path)
-        return output_path
+        cmd = [
+            "yt-dlp",
+            "--no-playlist",
+            "--no-check-certificate",
+            # Select worst (smallest) audio-only stream for proxy bandwidth savings (strictly vcodec=none)
+            "-f", "ba[abr<=64]/worstaudio/ba/wa",
+            # Post-process to mono WAV at target sample rate
+            "--postprocessor-args",
+            f"ffmpeg:-ac 1 -ar {SAMPLE_RATE}",
+            "-x",  # extract audio only
+            "--audio-format", "wav",
+            "--extractor-args", f"youtube:player_client={player_clients}",
+            "-o", output_path,
+        ]
 
-    # Search for any wav in the dir
-    for f in os.listdir(output_dir):
-        if f.endswith(".wav"):
-            return os.path.join(output_dir, f)
+        # Add cookies if available
+        cmd.extend(_get_cookie_args())
 
-    raise FileNotFoundError(f"No WAV file found in {output_dir} after yt-dlp download")
+        # Add proxy
+        if current_proxy:
+            cmd.extend(["--proxy", current_proxy])
+
+        cmd.append(video_url)
+
+        Actor.log.info(
+            f"[AudioAnalyzer] Downloading audio stream (attempt {attempt}/3, clients={player_clients})..."
+        )
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+
+        if result.returncode == 0:
+            # yt-dlp may append .wav again – find the actual file
+            if os.path.exists(output_path):
+                return output_path
+
+            double_ext = output_path + ".wav"
+            if os.path.exists(double_ext):
+                os.rename(double_ext, output_path)
+                return output_path
+
+            for f in os.listdir(output_dir):
+                if f.endswith(".wav"):
+                    return os.path.join(output_dir, f)
+
+        last_error = result.stderr[-1000:] if result.stderr else f"Exit code {result.returncode}"
+        Actor.log.warning(
+            f"[AudioAnalyzer] yt-dlp attempt {attempt}/3 failed (exit {result.returncode}): {last_error[:300]}"
+        )
+
+    Actor.log.error(f"[AudioAnalyzer] All 3 download attempts failed. Stderr: {last_error}")
+    raise RuntimeError(f"yt-dlp audio download failed after 3 attempts: {last_error}")
 
 
 # ---------------------------------------------------------------------------

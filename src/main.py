@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -99,16 +100,55 @@ def _load_env_file() -> None:
             break
 
 
-def get_apify_proxy_url() -> str | None:
+def get_apify_proxy_url(session_id: str | None = None) -> str | None:
     """
     Get the Apify RESIDENTIAL proxy URL if APIFY_PROXY_PASSWORD is set.
-    Format: http://groups-RESIDENTIAL:<password>@proxy.apify.com:8000
+    Optionally attaches a sticky session ID to maintain the same residential IP across calls.
+    Format: http://groups-RESIDENTIAL[,session-<session_id>]:<password>@proxy.apify.com:8000
     """
     _load_env_file()
     password = os.environ.get("APIFY_PROXY_PASSWORD", "").strip()
     if not password:
         return None
+    if session_id:
+        return f"http://groups-RESIDENTIAL,session-{session_id}:{password}@proxy.apify.com:8000"
     return f"http://groups-RESIDENTIAL:{password}@proxy.apify.com:8000"
+
+
+def _get_cookie_args() -> list[str]:
+    """Return yt-dlp cookie arguments if cookies are configured."""
+    candidates = [
+        "cookies.txt",
+        os.path.join(os.getcwd(), "cookies.txt"),
+        "/usr/src/app/cookies.txt",
+    ]
+    for p in candidates:
+        if os.path.exists(p) and os.path.getsize(p) > 10:
+            return ["--cookies", p]
+
+    raw_cookies = os.environ.get("YOUTUBE_COOKIES", "").strip()
+    if raw_cookies:
+        tmp_c = os.path.join(tempfile.gettempdir(), "yt_cookies.txt")
+        try:
+            with open(tmp_c, "w", encoding="utf-8") as f:
+                f.write(raw_cookies)
+            return ["--cookies", tmp_c]
+        except Exception:
+            pass
+
+    b64_cookies = os.environ.get("YOUTUBE_COOKIES_BASE64", "").strip()
+    if b64_cookies:
+        try:
+            import base64
+            decoded = base64.b64decode(b64_cookies).decode("utf-8", errors="ignore")
+            tmp_c = os.path.join(tempfile.gettempdir(), "yt_cookies.txt")
+            with open(tmp_c, "w", encoding="utf-8") as f:
+                f.write(decoded)
+            return ["--cookies", tmp_c]
+        except Exception:
+            pass
+
+    return []
 
 
 # ===========================================================================
@@ -126,7 +166,11 @@ def fetch_video_metadata(video_url: str, proxy_url: str | None = None) -> dict[s
             "skip_download": True,
             "no_playlist": True,
             "no_check_certificate": True,
+            "extractor_args": {"youtube": {"player_client": ["android", "mweb", "web"]}},
         }
+        cookie_args = _get_cookie_args()
+        if cookie_args and len(cookie_args) == 2:
+            ydl_opts["cookiefile"] = cookie_args[1]
         if proxy_url:
             ydl_opts["proxy"] = proxy_url
 
@@ -158,16 +202,20 @@ def fetch_subtitles(video_url: str, video_id: str, proxy_url: str | None = None)
         tmp_dir = tempfile.mkdtemp(prefix="yt_subs_")
         output_template = os.path.join(tmp_dir, "subs")
 
+        cookie_args = _get_cookie_args()
+
         cmd = [
             "yt-dlp",
             "--no-playlist",
             "--no-check-certificate",
             "--skip-download",
             "--write-auto-sub",
-            "--sub-lang", "en",
+            "--sub-langs", "it.*,en.*,all",
             "--sub-format", "json3",
+            "--extractor-args", "youtube:player_client=android,mweb,web",
             "-o", output_template,
         ]
+        cmd.extend(cookie_args)
         if proxy_url:
             cmd.extend(["--proxy", proxy_url])
         cmd.append(video_url)
@@ -189,10 +237,12 @@ def fetch_subtitles(video_url: str, video_id: str, proxy_url: str | None = None)
                 "--no-check-certificate",
                 "--skip-download",
                 "--write-auto-sub",
-                "--sub-lang", "en",
+                "--sub-langs", "it.*,en.*,all",
                 "--sub-format", "vtt",
+                "--extractor-args", "youtube:player_client=android,mweb,web",
                 "-o", output_template,
             ]
+            cmd_vtt.extend(cookie_args)
             if proxy_url:
                 cmd_vtt.extend(["--proxy", proxy_url])
             cmd_vtt.append(video_url)
@@ -535,10 +585,12 @@ async def main() -> None:
         await Actor.set_status_message(f"Starting analysis of {video_id}...")
 
         # Configure Apify Residential Proxy if APIFY_PROXY_PASSWORD is set
-        proxy_url = get_apify_proxy_url()
+        # Generate a sticky residential session for this video to keep consistent IP across calls
+        session_id = f"yt_{video_id[:12]}_{int(time.time())}"
+        proxy_url = get_apify_proxy_url(session_id=session_id)
         if proxy_url:
             masked_url = re.sub(r":([^@]+)@", ":****@", proxy_url)
-            Actor.log.info(f"[Main] Using Apify Residential Proxy: {masked_url}")
+            Actor.log.info(f"[Main] Using Apify Residential Proxy (sticky session): {masked_url}")
             os.environ["HTTP_PROXY"] = proxy_url
             os.environ["HTTPS_PROXY"] = proxy_url
         else:
