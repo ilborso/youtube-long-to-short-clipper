@@ -359,13 +359,27 @@ async def detect_salient_moments_from_transcript(
             return []
 
         import json
+        import re
         text = response.text.strip()
         if text.startswith("```"):
             lines = text.split("\n")
             lines = [l for l in lines if not l.strip().startswith("```")]
             text = "\n".join(lines).strip()
 
-        data = json.loads(text)
+        data = None
+        try:
+            data = json.loads(text)
+        except Exception:
+            m = re.search(r"\{.*\}", text, re.DOTALL)
+            if m:
+                try:
+                    data = json.loads(m.group(0))
+                except Exception:
+                    pass
+
+        if not isinstance(data, dict):
+            data = {}
+
         raw_highlights = data.get("highlights", [])
 
         valid_highlights = []
@@ -394,7 +408,7 @@ async def detect_salient_moments_from_transcript(
 
 async def transcribe_and_title_clip(
     audio_bytes: bytes,
-    mime_type: str = "audio/mp3",
+    mime_type: str = "audio/wav",
     fallback_title: str = "Highlight Clip",
     fallback_transcript: str = "",
 ) -> dict[str, str]:
@@ -404,9 +418,11 @@ async def transcribe_and_title_clip(
     """
     client, config = _get_client()
     if client is None or not audio_bytes:
+        Actor.log.warning("[GeminiService] Gemini client unavailable or empty audio bytes.")
         return {"title": fallback_title, "transcript": fallback_transcript}
 
     import json
+    import re
     from google.genai import types
 
     prompt = """You are an expert video editor and viral short-form content producer.
@@ -428,7 +444,8 @@ Respond in this EXACT JSON format (pure JSON only, no markdown code fences):
     try:
         model_name = get_model_name()
         Actor.log.info(
-            f"[GeminiService] Transcribing clip audio & generating title with Gemini ({model_name})..."
+            f"[GeminiService] Transcribing clip audio ({mime_type}, {len(audio_bytes)//1024} KB) "
+            f"& generating title with Gemini ({model_name})..."
         )
         response = await asyncio.to_thread(
             client.models.generate_content,
@@ -439,16 +456,31 @@ Respond in this EXACT JSON format (pure JSON only, no markdown code fences):
 
         if response and response.text:
             text = response.text.strip()
+            Actor.log.info(f"[GeminiService] Gemini clip response received: {text[:120]}...")
             if text.startswith("```"):
                 lines = text.split("\n")
                 lines = [l for l in lines if not l.strip().startswith("```")]
                 text = "\n".join(lines).strip()
-            data = json.loads(text)
-            title = str(data.get("title", "")).strip() or fallback_title
-            transcript = str(data.get("transcript", "")).strip() or fallback_transcript
-            return {"title": title, "transcript": transcript}
+
+            data = None
+            try:
+                data = json.loads(text)
+            except Exception:
+                m = re.search(r"\{.*\}", text, re.DOTALL)
+                if m:
+                    try:
+                        data = json.loads(m.group(0))
+                    except Exception:
+                        pass
+
+            if isinstance(data, dict):
+                title = str(data.get("title", "")).strip() or fallback_title
+                transcript = str(data.get("transcript", "")).strip() or fallback_transcript
+                return {"title": title, "transcript": transcript}
+            elif text:
+                return {"title": fallback_title, "transcript": text}
     except Exception as e:
-        Actor.log.warning(f"[GeminiService] Clip audio transcription error: {e}")
+        Actor.log.error(f"[GeminiService] Clip audio transcription error: {e}")
 
     return {"title": fallback_title, "transcript": fallback_transcript}
 

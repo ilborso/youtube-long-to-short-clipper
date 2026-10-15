@@ -26,7 +26,7 @@ This Actor analyzes a YouTube video using **multi-signal scoring** to find highl
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `file_video` | String | No | — | Direct URL to a video file (.mp4, .mkv, .mov, etc.) to download and analyze locally. When specified, extracts audio, detects moments from audio spikes/energy, cuts the video into clips, and provides downloadable trimmed files. |
+| `file_video` | String | No | — | Direct URL to a video file (.mp4, .mkv, .mov, etc.) to download and analyze locally. When specified, extracts audio, extracts transcript locally (embedded subtitles or faster-whisper), detects salient moments using Gemini AI, cuts the video into clips, and provides downloadable trimmed files. |
 | `video_url` | String | No* | — | Any valid YouTube video URL (`youtube.com/watch?v=...`, `youtu.be/...`). Used when `file_video` is omitted. (*Either `file_video` or `video_url` is required) |
 | `max_clips` | Integer | No | `5` | Number of top highlight segments to return (1–50) |
 | `max_length` | Integer | No | `60` | Maximum duration in seconds of each selected highlight clip (10–300) |

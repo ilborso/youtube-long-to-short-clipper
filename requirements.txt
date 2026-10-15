@@ -12,5 +12,8 @@ numpy
 scipy
 pydub
 
+# Local speech-to-text transcription (offline, CPU)
+faster-whisper
+
 # Google Gemini API for transcript enrichment
 google-genai

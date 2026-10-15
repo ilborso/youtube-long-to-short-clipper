@@ -654,6 +654,47 @@ def extract_subtitles_from_local_video(
     return {}, []
 
 
+def transcribe_audio_locally(
+    audio_path: str,
+) -> tuple[dict[float, str], list[dict[str, Any]]]:
+    """
+    Transcribe audio file locally using faster-whisper on CPU.
+    Returns (subtitles_dict, subtitle_segments) with precise timestamps.
+    """
+    try:
+        from faster_whisper import WhisperModel
+        Actor.log.info("[Main] Transcribing audio locally with faster-whisper (model: tiny, CPU int8)...")
+        model = WhisperModel("tiny", device="cpu", compute_type="int8")
+        segments_gen, info = model.transcribe(audio_path, beam_size=1)
+
+        subtitles_dict: dict[float, str] = {}
+        subtitle_segments: list[dict[str, Any]] = []
+
+        for seg in segments_gen:
+            text = seg.text.strip()
+            if text:
+                subtitles_dict[round(seg.start, 2)] = text
+                subtitle_segments.append({
+                    "start": round(seg.start, 2),
+                    "duration": round(seg.end - seg.start, 2),
+                    "text": text,
+                })
+
+        Actor.log.info(
+            f"[Main] Local transcription completed: {len(subtitle_segments)} segments "
+            f"(language: {info.language}, prob: {info.language_probability:.2f})"
+        )
+        return subtitles_dict, subtitle_segments
+    except ImportError:
+        Actor.log.warning(
+            "[Main] faster-whisper not installed. Local speech-to-text skipped."
+        )
+    except Exception as e:
+        Actor.log.warning(f"[Main] Local audio transcription error: {e}")
+
+    return {}, []
+
+
 def detect_salient_moments_from_audio_events(
     events: list[AudioEvent],
     max_clips: int,
@@ -776,9 +817,9 @@ def cut_local_video_clip(
     return output_path
 
 
-def extract_clip_audio_bytes(clip_path: str) -> bytes:
-    """Extract lightweight mono MP3 from a clip for Gemini transcription."""
-    tmp_mp3 = clip_path + ".mp3"
+def extract_clip_audio_bytes(clip_path: str) -> tuple[bytes, str]:
+    """Extract mono 16kHz WAV from a clip for Gemini transcription."""
+    tmp_wav = clip_path + ".wav"
     try:
         cmd = [
             "ffmpeg", "-y",
@@ -786,22 +827,34 @@ def extract_clip_audio_bytes(clip_path: str) -> bytes:
             "-vn",
             "-ac", "1",
             "-ar", "16000",
-            "-b:a", "64k",
-            tmp_mp3,
+            "-c:a", "pcm_s16le",
+            tmp_wav,
         ]
         res = subprocess.run(cmd, capture_output=True, timeout=60)
-        if res.returncode == 0 and os.path.exists(tmp_mp3):
-            with open(tmp_mp3, "rb") as f:
-                return f.read()
+        if res.returncode == 0 and os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 100:
+            with open(tmp_wav, "rb") as f:
+                return f.read(), "audio/wav"
+        else:
+            err = res.stderr[-200:] if res.stderr else "non-zero return code"
+            Actor.log.warning(f"[Main] ffmpeg wav extraction warning: {err}")
     except Exception as e:
         Actor.log.warning(f"[Main] Failed to extract audio bytes for clip: {e}")
     finally:
-        if os.path.exists(tmp_mp3):
+        if os.path.exists(tmp_wav):
             try:
-                os.remove(tmp_mp3)
+                os.remove(tmp_wav)
             except OSError:
                 pass
-    return b""
+
+    # Fallback: pass the clip's MP4 directly as video/mp4 if under 25MB
+    try:
+        if os.path.exists(clip_path) and os.path.getsize(clip_path) < 25 * 1024 * 1024:
+            with open(clip_path, "rb") as f:
+                return f.read(), "video/mp4"
+    except Exception:
+        pass
+
+    return b"", ""
 
 
 # ===========================================================================
@@ -824,6 +877,15 @@ async def main() -> None:
         max_clips = max(1, min(max_clips, 50))
         max_length = int(actor_input.get("max_length", 60))
         max_length = max(10, min(max_length, 600))
+
+        # Check for Gemini API Key in environment
+        if os.environ.get("GEMINI_API_KEY", "").strip():
+            Actor.log.info("[Main] GEMINI_API_KEY detected in environment.")
+        else:
+            Actor.log.warning(
+                "[Main] ⚠️ GEMINI_API_KEY environment variable is not set. "
+                "Identifying salient moments will use fallback methods."
+            )
 
         if not file_video and not video_url:
             raise ValueError('Either "file_video" (direct video URL) or "video_url" (YouTube URL) must be provided in the input.')
@@ -880,17 +942,19 @@ async def main() -> None:
                 )
                 if subtitle_segments:
                     Actor.log.info(f"[Main] Extracted {len(subtitle_segments)} embedded subtitle segments.")
+                else:
+                    # Extract transcript locally using faster-whisper without Gemini
+                    await Actor.set_status_message("Transcribing audio locally without Gemini...")
+                    subtitles_dict, subtitle_segments = await asyncio.to_thread(
+                        transcribe_audio_locally, wav_path
+                    )
 
-                # Step 3: Run audio analysis to detect salient moments
-                await Actor.set_status_message("Analyzing audio for energy spikes, excitement, and laughter...")
-                audio_events = await asyncio.to_thread(analyze_audio, wav_path)
-                moments = detect_salient_moments_from_audio_events(
-                    audio_events, max_clips, video_duration, max_length=max_length
-                )
-                Actor.log.info(f"[Main] Detected {len(moments)} salient moments from audio analysis.")
-
-                # Fallback to transcript if audio returned no peaks
-                if not moments and subtitle_segments:
+                # Step 3: Identify salient moments using Gemini from transcript
+                if subtitle_segments:
+                    await Actor.set_status_message("Identifying salient moments using Gemini...")
+                    Actor.log.info(
+                        f"[Main] Identifying salient moments from {len(subtitle_segments)} local transcript segments using Gemini..."
+                    )
                     formatted_transcript = format_transcript_for_prompt(subtitle_segments)
                     moments = await detect_salient_moments_from_transcript(
                         video_title=video_title,
@@ -899,7 +963,16 @@ async def main() -> None:
                         max_clips=max_clips,
                         max_length=max_length,
                     )
-                    if not moments:
+
+                # Fallback to audio event spikes if Gemini is not configured or returned no moments
+                if not moments:
+                    Actor.log.info("[Main] Analyzing audio events for salient moments fallback...")
+                    await Actor.set_status_message("Analyzing audio for energy spikes and salient moments...")
+                    audio_events = await asyncio.to_thread(analyze_audio, wav_path)
+                    moments = detect_salient_moments_from_audio_events(
+                        audio_events, max_clips, video_duration, max_length=max_length
+                    )
+                    if not moments and subtitle_segments:
                         moments = detect_salient_moments_heuristically(
                             subtitle_segments, max_clips, video_duration, max_length=max_length
                         )
@@ -1070,18 +1143,11 @@ async def main() -> None:
                         cut_local_video_clip, local_video_path, start_hhmmss, end_hhmmss, clip_path
                     )
 
-                    # Extract transcript and Title from the cut clip's audio using Gemini
+                    # Clip title from salient moment headline, transcript extracted locally from video subtitles
                     clip_title = headline or f"Highlight #{rank}"
-                    audio_bytes = await asyncio.to_thread(extract_clip_audio_bytes, clip_path)
-                    if audio_bytes:
-                        trans_data = await transcribe_and_title_clip(
-                            audio_bytes=audio_bytes,
-                            mime_type="audio/mp3",
-                            fallback_title=clip_title,
-                            fallback_transcript=clip_transcript,
-                        )
-                        clip_title = trans_data.get("title") or clip_title
-                        clip_transcript = trans_data.get("transcript") or clip_transcript
+                    Actor.log.info(
+                        f"[Main] Clip #{rank}: Title='{clip_title}' | Transcript='{clip_transcript[:80]}...'"
+                    )
 
                     # Upload trimmed clip to Key-Value Store for instant download
                     with open(clip_path, "rb") as cf:
