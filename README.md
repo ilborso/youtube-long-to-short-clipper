@@ -86,11 +86,11 @@ To bypass YouTube rate limits and IP blocks, the Actor routes all YouTube networ
 http://groups-RESIDENTIAL:<APIFY_PROXY_PASSWORD>@proxy.apify.com:8000
 ```
 
-### Bandwidth Protection (Zero Video Download)
-To strictly minimize proxy data transfer and bandwidth costs:
-- **No video streams are ever downloaded.** Only the lowest-bitrate compressed audio stream (`-f worstaudio`, strictly `vcodec=none`, ~15–25 MB/hr) is fetched and post-processed locally with FFmpeg to 22 kHz mono WAV.
-- **Subtitles and metadata** use `--skip-download` / `skip_download: True` (pure JSON/text, < 100 KB).
-- **Chat replay** streams only JSON text messages via YouTube's live chat endpoints.
+### Bandwidth Protection (Zero Media Download)
+To strictly eliminate proxy data transfer and bandwidth costs:
+- **No video or audio streams are ever downloaded.** The Actor operates in **pure transcript mode**.
+- **Subtitles and metadata only:** The Actor uses `yt-dlp` with `--skip-download` to fetch only the timestamped subtitle file (< 350 KB total text).
+- **Zero media re-encoding:** Memory usage stays under 200 MB and run duration is reduced to just a few seconds.
 
 ### How to set `APIFY_PROXY_PASSWORD`:
 
@@ -115,59 +115,43 @@ $env:APIFY_PROXY_PASSWORD="your_proxy_password"
 
 ---
 
-## Configuring the Gemini API Key
+## Configuring Gemini AI & Model Selection
 
-The Actor uses Google Gemini to **refine clip boundaries** and **polish transcripts**. The API key is **optional** — the Actor works without it, but enrichment is skipped.
+The Actor uses Google Gemini to **analyze the timestamped transcript** and identify the most engaging, salient, and viral moments.
 
-### How to set `GEMINI_API_KEY` in Apify Console:
+### Environment Variables:
+1. **`GEMINI_API_KEY`**: Your Google AI Studio API key (get one free at [aistudio.google.com](https://aistudio.google.com/apikey)).
+2. **`MODEL`** (Optional): The Gemini model to use. Default is `gemini-flash-lite-latest` (e.g. `gemini-flash-lite-latest`, `gemini-2.0-flash`, `gemini-1.5-pro`).
 
+### How to configure in Apify Console:
 1. Go to your Actor's page in [Apify Console](https://console.apify.com/)
 2. Click **Settings** → **Environment variables**
-3. Add a new variable:
-   - **Name**: `GEMINI_API_KEY`
-   - **Value**: Your Google AI Studio API key (get one free at [aistudio.google.com](https://aistudio.google.com/apikey))
-   - **Secret**: ✅ Check this box
-4. Click **Save**
-
-> 💡 Without Gemini, clip timestamps and transcripts are based on raw signal detection. With Gemini, boundaries are refined to natural narrative breaks and transcripts are cleaned up.
+3. Set `GEMINI_API_KEY` (check **Secret** ✅)
+4. Set `MODEL` to your desired Gemini model (e.g. `gemini-flash-lite-latest`)
+5. Click **Save**
 
 ---
 
 ## How the Algorithm Works
 
-### 1. Audio Analysis Pipeline
+### 1. Pure Transcript Extraction (Zero Media Download)
 ```
-Video URL → yt-dlp (worst audio) → WAV (22kHz mono) → Chunked Analysis
-    ├── Rolling RMS (energy/dBFS) → Volume spike detection
-    ├── Spectral Centroid → Scream/excitement frequency tracking
-    ├── Zero-Crossing Rate → Laughter burst detection
-    └── Event Classification → Tags (laughter_spike, high_pitch_scream, etc.)
+Video URL → yt-dlp (--skip-download) → Subtitle Stream (JSON3 / VTT) → Timestamped Segments
 ```
+- Only lightweight subtitle text (< 350 KB) is extracted. No audio or video is downloaded.
+- Automatically selects the original spoken language (e.g., `it-orig`, `en-orig`) or primary captions.
 
-### 2. Chat Analysis Pipeline
-```
-Video URL → chat_downloader → Sorted Messages → Sliding Windows (5s)
-    ├── Message count per window → Velocity calculation
-    ├── Moving average baseline (60s) → Spike detection (>250% = spike)
-    └── Keyword/emote pattern scanning → Tag generation
-```
+### 2. Salient Moment Detection
+- **With Gemini AI (`GEMINI_API_KEY` set):**
+  Gemini analyzes the complete narrative flow and pinpoints the core climax, punchline, key revelation, or actionable takeaway with exact core start and end timestamps.
+- **Without Gemini (Heuristic Fallback):**
+  Analyzes dialogue density (WPM pacing), emotional punctuation (`?`, `!`), and high-impact hook keywords.
 
-### 3. Multi-Signal Fusion
-```
-Audio Score (0-100) × 0.60  ──┐
-                               ├──→ Composite Score (0-100)
-Chat Score (0-100) × 0.40  ──┘
-                               ↓
-                        Peak Selection
-                        (non-overlapping, sorted by score)
-                               ↓
-                     Contextual Windowing
-                     (8-12s pre-roll, 5-8s post-roll)
-                     (capped 20-60s for Shorts format)
-                               ↓
-                      Gemini Enrichment
-                      (refine boundaries, polish transcript)
-```
+### 3. Context Expansion (+10s Pre-Roll & +10s Post-Roll)
+For every detected salient moment with core interval `[core_start, core_end]`:
+- **Pre-Roll:** `start_seconds = max(0, core_start - 10.0)`
+- **Post-Roll:** `end_seconds = min(duration, core_end + 10.0)`
+- Guarantees natural setup context before the climax and reaction/payoff after it.
 
 ---
 

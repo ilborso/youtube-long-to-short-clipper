@@ -18,11 +18,44 @@ from apify import Actor
 
 
 # ---------------------------------------------------------------------------
-# Client initialization
+# Client initialization & environment configuration
 # ---------------------------------------------------------------------------
 
 _client = None
 _genai_config = None
+
+
+def _load_env_file() -> None:
+    """Load variables from .env file if present and not already set in os.environ."""
+    candidates = [
+        os.path.join(os.getcwd(), ".env"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"),
+    ]
+    for env_path in candidates:
+        if os.path.exists(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k = k.strip()
+                            v = v.strip().strip('"').strip("'")
+                            if k and k not in os.environ:
+                                os.environ[k] = v
+            except Exception:
+                pass
+            break
+
+
+def get_model_name() -> str:
+    """
+    Get the Gemini model name from the MODEL environment variable.
+    Defaults to 'gemini-flash-lite-latest'.
+    """
+    _load_env_file()
+    model = os.environ.get("MODEL", "").strip()
+    return model if model else "gemini-flash-lite-latest"
 
 
 def _get_client():
@@ -32,11 +65,12 @@ def _get_client():
     if _client is not None:
         return _client, _genai_config
 
+    _load_env_file()
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
         Actor.log.warning(
             "[GeminiService] GEMINI_API_KEY environment variable is not set or empty. "
-            "Gemini enrichment will be skipped."
+            "Gemini AI highlights detection will be skipped."
         )
         return None, None
 
@@ -54,7 +88,9 @@ def _get_client():
             temperature=0.3,
             max_output_tokens=1024,
         )
-        Actor.log.info("[GeminiService] Gemini client initialized successfully.")
+        Actor.log.info(
+            f"[GeminiService] Gemini client initialized successfully (model: {get_model_name()})."
+        )
         return _client, _genai_config
     except Exception as e:
         Actor.log.error(f"[GeminiService] Failed to initialize Gemini client: {e}")
@@ -88,16 +124,41 @@ You are an expert video editor assistant. I detected a potential highlight clip 
 }}
 """
 
-TRANSCRIBE_PROMPT = """\
-Transcribe the following audio segment from a YouTube video.
-The segment is approximately {duration} seconds long, starting at {start_time}.
+SALIENT_TRANSCRIPT_PROMPT = """\
+You are an expert video editor and viral short-form content producer.
+Your goal is to analyze the timestamped transcription of the YouTube video titled:
+"{video_title}" (Duration: {duration_formatted})
 
-Provide ONLY the transcription text, no timestamps or speaker labels.
-Keep it verbatim and accurate.
+Identify the top {max_clips} most salient, engaging, and memorable moments suitable for YouTube Shorts or viral clips.
+
+Criteria for Salient Moments:
+- High interest, punchline, key insight, dramatic story, shocking revelation, strong humor, or actionable tip.
+- Self-contained thought that hooks viewers immediately.
+- Clearly identify the core salient interval: `core_start_seconds` and `core_end_seconds`.
+- The core moment itself should be roughly 15 to 45 seconds long.
+- Make sure none of the selected moments overlap each other.
+
+Timestamped Transcript:
+{transcript_content}
+
+Respond in this EXACT JSON format (no markdown code fences, pure JSON only):
+{{
+  "highlights": [
+    {{
+      "core_start_seconds": <float>,
+      "core_end_seconds": <float>,
+      "score": <float between 70.0 and 99.0>,
+      "headline": "<punchy hook/title>",
+      "detection_reasons": ["<reason1>", "<reason2>"],
+      "summary": "<brief summary>"
+    }}
+  ]
+}}
 """
 
 
 # ---------------------------------------------------------------------------
+
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -144,9 +205,10 @@ async def refine_highlight(
     )
 
     try:
+        model_name = get_model_name()
         response = await asyncio.to_thread(
             client.models.generate_content,
-            model="gemini-2.0-flash",
+            model=model_name,
             contents=prompt,
             config=config,
         )
@@ -238,3 +300,88 @@ async def enrich_highlights(
 
     Actor.log.info("[GeminiService] Enrichment complete.")
     return highlights
+
+
+async def detect_salient_moments_from_transcript(
+    video_title: str,
+    video_duration: float,
+    transcript_text_with_timestamps: str,
+    max_clips: int = 5,
+) -> list[dict[str, Any]]:
+    """
+    Use Gemini AI to analyze the timestamped transcript and return the most salient moments.
+    Returns a list of dicts with:
+      - core_start_seconds (float)
+      - core_end_seconds (float)
+      - score (float)
+      - headline (str)
+      - detection_reasons (list[str])
+      - summary (str)
+    """
+    client, config = _get_client()
+    if client is None:
+        Actor.log.warning("[GeminiService] Gemini client not configured, skipping AI detection.")
+        return []
+
+    def _fmt_time(s: float) -> str:
+        h = int(s // 3600)
+        m = int((s % 3600) // 60)
+        sec = int(s % 60)
+        return f"{h:02d}:{m:02d}:{sec:02d}"
+
+    prompt = SALIENT_TRANSCRIPT_PROMPT.format(
+        video_title=video_title,
+        duration_formatted=_fmt_time(video_duration),
+        max_clips=max_clips,
+        transcript_content=transcript_text_with_timestamps,
+    )
+
+    try:
+        model_name = get_model_name()
+        Actor.log.info(
+            f"[GeminiService] Analyzing video transcript with Gemini (model: {model_name}) to detect top {max_clips} highlights..."
+        )
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=model_name,
+            contents=prompt,
+            config=config,
+        )
+
+        if not response or not response.text:
+            Actor.log.warning("[GeminiService] Empty response from Gemini.")
+            return []
+
+        import json
+        text = response.text.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            text = "\n".join(lines).strip()
+
+        data = json.loads(text)
+        raw_highlights = data.get("highlights", [])
+
+        valid_highlights = []
+        for h in raw_highlights:
+            start = float(h.get("core_start_seconds", 0))
+            end = float(h.get("core_end_seconds", 0))
+            if end <= start:
+                continue
+            valid_highlights.append({
+                "core_start_seconds": start,
+                "core_end_seconds": end,
+                "score": float(h.get("score", 85.0)),
+                "headline": str(h.get("headline", "")),
+                "detection_reasons": list(h.get("detection_reasons", ["salient_moment"])),
+                "summary": str(h.get("summary", "")),
+            })
+
+        valid_highlights.sort(key=lambda x: x["score"], reverse=True)
+        Actor.log.info(f"[GeminiService] Detected {len(valid_highlights)} salient moments from transcript.")
+        return valid_highlights[:max_clips]
+
+    except Exception as e:
+        Actor.log.warning(f"[GeminiService] Failed to detect salient moments via Gemini: {e}")
+        return []
+
