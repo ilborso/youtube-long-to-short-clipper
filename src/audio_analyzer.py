@@ -24,7 +24,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-from scipy import signal as scipy_signal
 from apify import Actor
 
 
@@ -256,12 +255,28 @@ def download_audio_stream(
 
 def _load_wav_raw(path: str) -> np.ndarray:
     """
-    Load a WAV file into a numpy array using scipy (no librosa dependency).
+    Load a WAV file into a numpy array using scipy or Python's wave module.
     Returns float64 samples normalised to [-1, 1].
     """
-    from scipy.io import wavfile
-
-    sr, data = wavfile.read(path)
+    try:
+        from scipy.io import wavfile
+        sr, data = wavfile.read(path)
+    except Exception:
+        import wave
+        with wave.open(path, "rb") as wf:
+            sr = wf.getframerate()
+            n_channels = wf.getnchannels()
+            sampwidth = wf.getsampwidth()
+            n_frames = wf.getnframes()
+            frames = wf.readframes(n_frames)
+            if sampwidth == 2:
+                data = np.frombuffer(frames, dtype=np.int16)
+            elif sampwidth == 4:
+                data = np.frombuffer(frames, dtype=np.int32)
+            else:
+                data = np.frombuffer(frames, dtype=np.uint8).astype(np.float64) - 128
+            if n_channels > 1:
+                data = data.reshape(-1, n_channels)
 
     # Convert to float64
     if data.dtype == np.int16:

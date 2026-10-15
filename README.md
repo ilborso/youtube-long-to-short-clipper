@@ -26,11 +26,22 @@ This Actor analyzes a YouTube video using **multi-signal scoring** to find highl
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `video_url` | String | ✅ Yes | — | Any valid YouTube video URL (`youtube.com/watch?v=...`, `youtu.be/...`, `/live/...`) |
+| `file_video` | String | No | — | Direct URL to a video file (.mp4, .mkv, .mov, etc.) to download and analyze locally. When specified, extracts audio, detects moments from audio spikes/energy, cuts the video into clips, and provides downloadable trimmed files. |
+| `video_url` | String | No* | — | Any valid YouTube video URL (`youtube.com/watch?v=...`, `youtu.be/...`). Used when `file_video` is omitted. (*Either `file_video` or `video_url` is required) |
 | `max_clips` | Integer | No | `5` | Number of top highlight segments to return (1–50) |
 | `max_length` | Integer | No | `60` | Maximum duration in seconds of each selected highlight clip (10–300) |
 
-### Example Input
+### Example Input (Direct Video File)
+
+```json
+{
+    "file_video": "https://example.com/videos/podcast.mp4",
+    "max_clips": 3,
+    "max_length": 60
+}
+```
+
+### Example Input (YouTube URL)
 
 ```json
 {
@@ -55,7 +66,9 @@ Each detected highlight is pushed to the Apify dataset with these fields:
 | `duration_seconds` | Number | Clip duration in seconds (20–60s) |
 | `detection_reasons` | Array | Trigger explanations (e.g., `["laughter_spike", "chat_velocity_320%"]`) |
 | `transcript` | String | Spoken text during the highlight segment |
-| `direct_timestamp_url` | String | Direct YouTube link to the moment (`https://youtu.be/<id>?t=<seconds>`) |
+| `direct_timestamp_url` | String | Direct YouTube or video timestamp link (`...#t=<seconds>`) |
+| `download_url` | String | Direct download link for the cut video clip from Key-Value Store (when using `file_video`) |
+| `clip_filename` | String | Cut video filename (e.g., `clip_1.mp4`) |
 | `ffmpeg_command` | String | Copy-pasteable command to extract this clip losslessly |
 
 ### Example Output Record

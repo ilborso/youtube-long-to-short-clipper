@@ -55,6 +55,16 @@
                 "type": "string",
                 "description": "Copy-pasteable command to extract this clip losslessly using yt-dlp and ffmpeg",
                 "example": "ffmpeg -ss 01:23:45 -to 01:24:30 -i \"$(yt-dlp -g -f 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' 'https://www.youtube.com/watch?v=dQw4w9WgXcQ')\" -c copy clip_1.mp4"
+            },
+            "download_url": {
+                "type": "string",
+                "description": "Direct download link for the cut video clip from the Key-Value Store",
+                "example": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.mp4"
+            },
+            "clip_filename": {
+                "type": "string",
+                "description": "Filename of the trimmed clip",
+                "example": "clip_1.mp4"
             }
         }
     },
@@ -71,6 +81,7 @@
                     "detection_reasons",
                     "transcript",
                     "direct_timestamp_url",
+                    "download_url",
                     "ffmpeg_command"
                 ]
             },
@@ -104,6 +115,10 @@
                     "transcript": {
                         "label": "Transcript",
                         "format": "text"
+                    },
+                    "download_url": {
+                        "label": "Download Video",
+                        "format": "link"
                     },
                     "direct_timestamp_url": {
                         "label": "Link",

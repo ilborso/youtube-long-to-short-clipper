@@ -4,11 +4,17 @@
     "type": "object",
     "schemaVersion": 1,
     "properties": {
-        "video_url": {
-            "title": "YouTube Video URL",
+        "file_video": {
+            "title": "Video File URL (Direct Download & Clip Extraction)",
             "sectionCaption": "Video Input",
             "type": "string",
-            "description": "Valid YouTube video or VOD URL (e.g., https://www.youtube.com/watch?v=..., https://youtu.be/...). The Actor will analyze this video to find the most engaging highlight moments.",
+            "description": "Direct URL to a video file (.mp4, .mkv, .mov, .webm, etc.) to download and analyze locally. When specified, the Actor downloads the video, extracts its audio, detects salient moments from the audio signal, cuts the video into clips, and provides downloadable trimmed clips.",
+            "editor": "textfield"
+        },
+        "video_url": {
+            "title": "YouTube Video URL",
+            "type": "string",
+            "description": "Valid YouTube video or VOD URL (e.g., https://www.youtube.com/watch?v=..., https://youtu.be/...). Used when 'file_video' is not provided.",
             "editor": "textfield",
             "prefill": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         },
@@ -32,7 +38,5 @@
             "editor": "number"
         }
     },
-    "required": [
-        "video_url"
-    ]
+    "required": []
 }
