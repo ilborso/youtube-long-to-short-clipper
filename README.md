@@ -79,6 +79,42 @@ Each detected highlight is pushed to the Apify dataset with these fields:
 
 ---
 
+## Configuring the Apify Residential Proxy
+
+To bypass YouTube rate limits and IP blocks, the Actor routes all YouTube network requests through Apify's **RESIDENTIAL** proxy:
+```
+http://groups-RESIDENTIAL:<APIFY_PROXY_PASSWORD>@proxy.apify.com:8000
+```
+
+### Bandwidth Protection (Zero Video Download)
+To strictly minimize proxy data transfer and bandwidth costs:
+- **No video streams are ever downloaded.** Only the lowest-bitrate compressed audio stream (`-f worstaudio`, strictly `vcodec=none`, ~15–25 MB/hr) is fetched and post-processed locally with FFmpeg to 22 kHz mono WAV.
+- **Subtitles and metadata** use `--skip-download` / `skip_download: True` (pure JSON/text, < 100 KB).
+- **Chat replay** streams only JSON text messages via YouTube's live chat endpoints.
+
+### How to set `APIFY_PROXY_PASSWORD`:
+
+#### 1. In Apify Console
+1. Go to your Actor's page in [Apify Console](https://console.apify.com/)
+2. Click **Settings** → **Environment variables**
+3. Add a new variable:
+   - **Name**: `APIFY_PROXY_PASSWORD`
+   - **Value**: Your Apify proxy password (found under [Proxy Settings](https://console.apify.com/proxy))
+   - **Secret**: ✅ Check this box
+4. Click **Save**
+
+#### 2. Locally for Development
+You can set it in your local environment or in a `.env` file (copied from `.env.example`):
+```env
+APIFY_PROXY_PASSWORD=your_proxy_password
+```
+Or in PowerShell:
+```powershell
+$env:APIFY_PROXY_PASSWORD="your_proxy_password"
+```
+
+---
+
 ## Configuring the Gemini API Key
 
 The Actor uses Google Gemini to **refine clip boundaries** and **polish transcripts**. The API key is **optional** — the Actor works without it, but enrichment is skipped.
