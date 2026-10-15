@@ -16,10 +16,19 @@
             "title": "Maximum Clips",
             "sectionCaption": "Output Settings",
             "type": "integer",
-            "description": "Number of top highlight segments to return, sorted by engagement score. Each clip is between 20-60 seconds, optimized for YouTube Shorts format.",
+            "description": "Number of top highlight segments to return, sorted by engagement score.",
             "default": 5,
             "minimum": 1,
             "maximum": 50,
+            "editor": "number"
+        },
+        "max_length": {
+            "title": "Maximum Clip Length (seconds)",
+            "type": "integer",
+            "description": "Maximum duration in seconds of each selected highlight clip (including context buffers). Optimized for YouTube Shorts (e.g. 60s).",
+            "default": 60,
+            "minimum": 10,
+            "maximum": 300,
             "editor": "number"
         }
     },

@@ -389,6 +389,7 @@ def detect_salient_moments_heuristically(
     segments: list[dict[str, Any]],
     max_clips: int,
     video_duration: float,
+    max_length: int = 60,
 ) -> list[dict[str, Any]]:
     """
     Algorithmic fallback: Detect salient moments by scoring transcript windows
@@ -406,8 +407,8 @@ def detect_salient_moments_heuristically(
     }
 
     candidates: list[dict[str, Any]] = []
-    window_duration = 25.0
-    step = 10.0
+    window_duration = max(10.0, min(35.0, float(max_length) - 20.0)) if max_length >= 30 else float(max(5.0, max_length - 4.0))
+    step = max(5.0, window_duration / 2.0)
 
     current_t = 0.0
     max_t = max(s["end"] for s in segments) if segments else video_duration
@@ -492,6 +493,8 @@ async def main() -> None:
         video_url = actor_input.get("video_url", "").strip()
         max_clips = int(actor_input.get("max_clips", 5))
         max_clips = max(1, min(max_clips, 50))
+        max_length = int(actor_input.get("max_length", 60))
+        max_length = max(10, min(max_length, 600))
 
         if not video_url:
             raise ValueError('Input "video_url" is required.')
@@ -501,7 +504,9 @@ async def main() -> None:
             raise ValueError(f'Could not extract video ID from URL: {video_url}')
 
         canonical_url = f"https://www.youtube.com/watch?v={video_id}"
-        Actor.log.info(f"[Main] Processing video: {video_id} (max_clips={max_clips})")
+        Actor.log.info(
+            f"[Main] Processing video: {video_id} (max_clips={max_clips}, max_length={max_length}s)"
+        )
 
         await Actor.set_status_message(f"Starting analysis of {video_id}...")
 
@@ -578,13 +583,14 @@ async def main() -> None:
             video_duration=video_duration,
             transcript_text_with_timestamps=formatted_transcript,
             max_clips=max_clips,
+            max_length=max_length,
         )
 
         # If Gemini is unavailable or failed, use heuristic analysis
         if not moments:
             Actor.log.info("[Main] Using heuristic transcript analyzer...")
             moments = detect_salient_moments_heuristically(
-                subtitle_segments, max_clips, video_duration
+                subtitle_segments, max_clips, video_duration, max_length=max_length
             )
 
         if not moments:
@@ -595,7 +601,7 @@ async def main() -> None:
 
         Actor.log.info(
             f"[Main] Identified {len(moments)} candidate moments. "
-            f"Applying +10s pre-roll and +10s post-roll context buffer..."
+            f"Applying context buffer (max clip length: {max_length}s)..."
         )
 
         # ── 5. Apply +10s / -10s buffer and format output ─────────────────
@@ -604,10 +610,42 @@ async def main() -> None:
         for rank, m in enumerate(moments, start=1):
             core_start = float(m["core_start_seconds"])
             core_end = float(m["core_end_seconds"])
+            if core_end <= core_start:
+                core_end = core_start + 1.0
+
+            # If core itself exceeds max_length, clamp it
+            if (core_end - core_start) > max_length:
+                core_end = core_start + max_length
 
             # REQUISITO UTENTE: "Agiungi 10 secondi precedenti e i 10 secondi successivi all'intervallo scelto"
-            start_sec = max(0.0, core_start - 10.0)
-            end_sec = min(video_duration, core_end + 10.0)
+            raw_start = max(0.0, core_start - 10.0)
+            raw_end = min(video_duration, core_end + 10.0)
+            total_duration = raw_end - raw_start
+
+            # Enforce max_length constraint
+            if total_duration > max_length:
+                excess = total_duration - max_length
+                # Trim equally from pre-roll and post-roll buffers
+                pre_trim = min(core_start - raw_start, excess / 2.0)
+                post_trim = min(raw_end - core_end, excess - pre_trim)
+                remaining = excess - (pre_trim + post_trim)
+                if remaining > 0:
+                    pre_trim += min(core_start - (raw_start + pre_trim), remaining)
+                    remaining = excess - (pre_trim + post_trim)
+                if remaining > 0:
+                    post_trim += remaining
+
+                start_sec = raw_start + pre_trim
+                end_sec = raw_end - post_trim
+            else:
+                start_sec = raw_start
+                end_sec = raw_end
+
+            start_sec = max(0.0, start_sec)
+            end_sec = min(video_duration, max(start_sec + 1.0, end_sec))
+            if (end_sec - start_sec) > max_length:
+                end_sec = start_sec + max_length
+
             duration = round(end_sec - start_sec, 2)
 
             start_hhmmss = seconds_to_hhmmss(start_sec)

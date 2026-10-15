@@ -28,13 +28,15 @@ This Actor analyzes a YouTube video using **multi-signal scoring** to find highl
 |-----------|------|----------|---------|-------------|
 | `video_url` | String | ✅ Yes | — | Any valid YouTube video URL (`youtube.com/watch?v=...`, `youtu.be/...`, `/live/...`) |
 | `max_clips` | Integer | No | `5` | Number of top highlight segments to return (1–50) |
+| `max_length` | Integer | No | `60` | Maximum duration in seconds of each selected highlight clip (10–300) |
 
 ### Example Input
 
 ```json
 {
     "video_url": "https://www.youtube.com/watch?v=jfKfPfyJRdk",
-    "max_clips": 5
+    "max_clips": 5,
+    "max_length": 60
 }
 ```
 

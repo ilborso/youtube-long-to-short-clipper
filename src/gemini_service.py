@@ -130,12 +130,13 @@ Your goal is to analyze the timestamped transcription of the YouTube video title
 "{video_title}" (Duration: {duration_formatted})
 
 Identify the top {max_clips} most salient, engaging, and memorable moments suitable for YouTube Shorts or viral clips.
+The maximum duration of each final clip must not exceed {max_length} seconds.
 
 Criteria for Salient Moments:
 - High interest, punchline, key insight, dramatic story, shocking revelation, strong humor, or actionable tip.
 - Self-contained thought that hooks viewers immediately.
 - Clearly identify the core salient interval: `core_start_seconds` and `core_end_seconds`.
-- The core moment itself should be roughly 15 to 45 seconds long.
+- The core moment itself must be roughly 10 to {max_core_length} seconds long so context buffers can be attached without exceeding {max_length}s.
 - Make sure none of the selected moments overlap each other.
 
 Timestamped Transcript:
@@ -307,6 +308,7 @@ async def detect_salient_moments_from_transcript(
     video_duration: float,
     transcript_text_with_timestamps: str,
     max_clips: int = 5,
+    max_length: int = 60,
 ) -> list[dict[str, Any]]:
     """
     Use Gemini AI to analyze the timestamped transcript and return the most salient moments.
@@ -329,17 +331,21 @@ async def detect_salient_moments_from_transcript(
         sec = int(s % 60)
         return f"{h:02d}:{m:02d}:{sec:02d}"
 
+    max_core_length = max(10, max_length - 20) if max_length >= 30 else max_length
     prompt = SALIENT_TRANSCRIPT_PROMPT.format(
         video_title=video_title,
         duration_formatted=_fmt_time(video_duration),
         max_clips=max_clips,
+        max_length=max_length,
+        max_core_length=max_core_length,
         transcript_content=transcript_text_with_timestamps,
     )
 
     try:
         model_name = get_model_name()
         Actor.log.info(
-            f"[GeminiService] Analyzing video transcript with Gemini (model: {model_name}) to detect top {max_clips} highlights..."
+            f"[GeminiService] Analyzing video transcript with Gemini (model: {model_name}) "
+            f"to detect top {max_clips} highlights (max_length={max_length}s)..."
         )
         response = await asyncio.to_thread(
             client.models.generate_content,
