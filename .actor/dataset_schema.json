@@ -9,6 +9,11 @@
                 "description": "Rank of this highlight clip (1 = highest score)",
                 "example": 1
             },
+            "Title": {
+                "type": "string",
+                "description": "Engaging viral title for this highlight clip",
+                "example": "Epic Game Winning Play"
+            },
             "score": {
                 "type": "number",
                 "description": "Composite engagement score from 0 to 100",
@@ -74,6 +79,7 @@
             "transformation": {
                 "fields": [
                     "rank",
+                    "Title",
                     "score",
                     "start_time",
                     "end_time",
@@ -91,6 +97,10 @@
                     "rank": {
                         "label": "#",
                         "format": "number"
+                    },
+                    "Title": {
+                        "label": "Title",
+                        "format": "text"
                     },
                     "score": {
                         "label": "Score",

@@ -23,7 +23,10 @@ from urllib.parse import parse_qs, urlparse
 from apify import Actor
 
 from .audio_analyzer import AudioEvent, analyze_audio, SAMPLE_RATE
-from .gemini_service import detect_salient_moments_from_transcript
+from .gemini_service import (
+    detect_salient_moments_from_transcript,
+    transcribe_and_title_clip,
+)
 
 
 # ===========================================================================
@@ -773,6 +776,34 @@ def cut_local_video_clip(
     return output_path
 
 
+def extract_clip_audio_bytes(clip_path: str) -> bytes:
+    """Extract lightweight mono MP3 from a clip for Gemini transcription."""
+    tmp_mp3 = clip_path + ".mp3"
+    try:
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", clip_path,
+            "-vn",
+            "-ac", "1",
+            "-ar", "16000",
+            "-b:a", "64k",
+            tmp_mp3,
+        ]
+        res = subprocess.run(cmd, capture_output=True, timeout=60)
+        if res.returncode == 0 and os.path.exists(tmp_mp3):
+            with open(tmp_mp3, "rb") as f:
+                return f.read()
+    except Exception as e:
+        Actor.log.warning(f"[Main] Failed to extract audio bytes for clip: {e}")
+    finally:
+        if os.path.exists(tmp_mp3):
+            try:
+                os.remove(tmp_mp3)
+            except OSError:
+                pass
+    return b""
+
+
 # ===========================================================================
 # Main Actor entrypoint
 # ===========================================================================
@@ -1026,7 +1057,6 @@ async def main() -> None:
                     "end_time": end_hhmmss,
                     "duration_seconds": duration,
                     "detection_reasons": detection_reasons,
-                    "transcript": clip_transcript,
                 }
 
                 if is_local_file and local_video_path and work_dir:
@@ -1040,6 +1070,19 @@ async def main() -> None:
                         cut_local_video_clip, local_video_path, start_hhmmss, end_hhmmss, clip_path
                     )
 
+                    # Extract transcript and Title from the cut clip's audio using Gemini
+                    clip_title = headline or f"Highlight #{rank}"
+                    audio_bytes = await asyncio.to_thread(extract_clip_audio_bytes, clip_path)
+                    if audio_bytes:
+                        trans_data = await transcribe_and_title_clip(
+                            audio_bytes=audio_bytes,
+                            mime_type="audio/mp3",
+                            fallback_title=clip_title,
+                            fallback_transcript=clip_transcript,
+                        )
+                        clip_title = trans_data.get("title") or clip_title
+                        clip_transcript = trans_data.get("transcript") or clip_transcript
+
                     # Upload trimmed clip to Key-Value Store for instant download
                     with open(clip_path, "rb") as cf:
                         clip_bytes = cf.read()
@@ -1047,6 +1090,9 @@ async def main() -> None:
                     download_url = await kvs.get_public_url(clip_filename)
                     clip_size_mb = round(os.path.getsize(clip_path) / (1024 * 1024), 2)
 
+                    item["Title"] = clip_title
+                    item["title"] = clip_title
+                    item["transcript"] = clip_transcript
                     item["clip_filename"] = clip_filename
                     item["clip_size_mb"] = clip_size_mb
                     item["download_url"] = download_url
@@ -1055,6 +1101,10 @@ async def main() -> None:
                         f'ffmpeg -ss {start_hhmmss} -to {end_hhmmss} -i "{file_video}" -c copy {clip_filename}'
                     )
                 else:
+                    clip_title = headline or f"Highlight #{rank}"
+                    item["Title"] = clip_title
+                    item["title"] = clip_title
+                    item["transcript"] = clip_transcript
                     timestamp_url = f"https://youtu.be/{video_id}?t={int(start_sec)}"
                     ffmpeg_cmd = (
                         f'ffmpeg -ss {start_hhmmss} -to {end_hhmmss} '
@@ -1080,8 +1130,9 @@ async def main() -> None:
 
             for r in results:
                 dl_info = f" | Download: {r['download_url']}" if "download_url" in r else ""
+                title_info = f" \"{r.get('Title')}\"" if r.get("Title") else ""
                 Actor.log.info(
-                    f"  #{r['rank']} [Score: {r['score']}] "
+                    f"  #{r['rank']}{title_info} [Score: {r['score']}] "
                     f"{r['start_time']} → {r['end_time']} ({r['duration_seconds']}s){dl_info} "
                     f"Reasons: {', '.join(r['detection_reasons'][:3])}"
                 )

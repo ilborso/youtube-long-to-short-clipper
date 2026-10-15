@@ -391,3 +391,65 @@ async def detect_salient_moments_from_transcript(
         Actor.log.warning(f"[GeminiService] Failed to detect salient moments via Gemini: {e}")
         return []
 
+
+async def transcribe_and_title_clip(
+    audio_bytes: bytes,
+    mime_type: str = "audio/mp3",
+    fallback_title: str = "Highlight Clip",
+    fallback_transcript: str = "",
+) -> dict[str, str]:
+    """
+    Use Gemini AI to transcribe audio from a cut clip and generate a viral Title.
+    Returns a dict with 'title' and 'transcript'.
+    """
+    client, config = _get_client()
+    if client is None or not audio_bytes:
+        return {"title": fallback_title, "transcript": fallback_transcript}
+
+    import json
+    from google.genai import types
+
+    prompt = """You are an expert video editor and viral short-form content producer.
+Listen to this audio clip:
+1. Transcribe the spoken dialogue verbatim and accurately. If there is no speech (only music, laughter, or background sound), describe what is heard (e.g. '[Music playing]', '[Laughter and applause]').
+2. Generate an engaging, punchy, viral title for this clip (maximum 6-10 words).
+
+Respond in this EXACT JSON format (pure JSON only, no markdown code fences):
+{
+  "title": "<Catchy Clip Title>",
+  "transcript": "<Accurate transcript of dialogue>"
+}"""
+
+    contents = [
+        types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
+        prompt,
+    ]
+
+    try:
+        model_name = get_model_name()
+        Actor.log.info(
+            f"[GeminiService] Transcribing clip audio & generating title with Gemini ({model_name})..."
+        )
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=model_name,
+            contents=contents,
+            config=config,
+        )
+
+        if response and response.text:
+            text = response.text.strip()
+            if text.startswith("```"):
+                lines = text.split("\n")
+                lines = [l for l in lines if not l.strip().startswith("```")]
+                text = "\n".join(lines).strip()
+            data = json.loads(text)
+            title = str(data.get("title", "")).strip() or fallback_title
+            transcript = str(data.get("transcript", "")).strip() or fallback_transcript
+            return {"title": title, "transcript": transcript}
+    except Exception as e:
+        Actor.log.warning(f"[GeminiService] Clip audio transcription error: {e}")
+
+    return {"title": fallback_title, "transcript": fallback_transcript}
+
+

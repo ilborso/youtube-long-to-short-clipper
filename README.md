@@ -60,12 +60,13 @@ Each detected highlight is pushed to the Apify dataset with these fields:
 | Field | Type | Description |
 |-------|------|-------------|
 | `rank` | Integer | Rank (1 = highest score) |
+| `Title` | String | Viral, catchy title generated for the clip |
 | `score` | Float | Composite engagement score (0–100) |
 | `start_time` | String | Clip start in `HH:MM:SS` format |
 | `end_time` | String | Clip end in `HH:MM:SS` format |
 | `duration_seconds` | Number | Clip duration in seconds (20–60s) |
 | `detection_reasons` | Array | Trigger explanations (e.g., `["laughter_spike", "chat_velocity_320%"]`) |
-| `transcript` | String | Spoken text during the highlight segment |
+| `transcript` | String | Spoken text / dialogue transcribed from the highlight segment |
 | `direct_timestamp_url` | String | Direct YouTube or video timestamp link (`...#t=<seconds>`) |
 | `download_url` | String | Direct download link for the cut video clip from Key-Value Store (when using `file_video`) |
 | `clip_filename` | String | Cut video filename (e.g., `clip_1.mp4`) |
@@ -76,6 +77,7 @@ Each detected highlight is pushed to the Apify dataset with these fields:
 ```json
 {
     "rank": 1,
+    "Title": "Epic Game Winning Shot",
     "score": 87.4,
     "start_time": "01:23:45",
     "end_time": "01:24:30",
