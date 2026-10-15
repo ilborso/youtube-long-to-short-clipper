@@ -505,14 +505,24 @@ async def main() -> None:
 
         await Actor.set_status_message(f"Starting analysis of {video_id}...")
 
+        # Ensure internal Apify SDK calls and Google Gemini bypass any global proxy
+        os.environ.pop("HTTP_PROXY", None)
+        os.environ.pop("HTTPS_PROXY", None)
+        os.environ.pop("http_proxy", None)
+        os.environ.pop("https_proxy", None)
+        os.environ["NO_PROXY"] = "localhost,127.0.0.1,api.apify.com,apify.com,*.apify.com,generativelanguage.googleapis.com"
+        os.environ["no_proxy"] = "localhost,127.0.0.1,api.apify.com,apify.com,*.apify.com,generativelanguage.googleapis.com"
+
         # Configure Apify Residential Proxy if APIFY_PROXY_PASSWORD is set
         session_id = f"yt_{video_id[:12]}_{int(time.time())}"
         proxy_url = get_apify_proxy_url(session_id=session_id)
         if proxy_url:
             masked_url = re.sub(r":([^@]+)@", ":****@", proxy_url)
             Actor.log.info(f"[Main] Using Apify Residential Proxy (sticky session): {masked_url}")
-            os.environ["HTTP_PROXY"] = proxy_url
-            os.environ["HTTPS_PROXY"] = proxy_url
+            # Note: Do NOT set HTTP_PROXY or HTTPS_PROXY in os.environ!
+            # Otherwise apify-client routes storage API calls (api.apify.com) through the proxy,
+            # triggering: "Unexpected error: Access to private IP addresses is not allowed".
+            # proxy_url is passed explicitly only to yt-dlp.
         else:
             Actor.log.info(
                 "[Main] APIFY_PROXY_PASSWORD not set. Running with direct connection (no proxy)."
