@@ -1,5 +1,5 @@
 # Core Apify SDK
-apify < 4.0.0
+apify
 
 # YouTube video/audio extraction
 yt-dlp

@@ -46,3 +46,10 @@ storage/
 *.json3
 temp/
 tmp/
+
+# Cryptographic keys and certificates
+*.pem
+*.key
+*.pub
+id_rsa*
+id_*
