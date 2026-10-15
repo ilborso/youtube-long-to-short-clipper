@@ -1,0 +1,120 @@
+{
+    "$schema": "https://apify.com/schemas/v1/dataset.ide.json",
+    "actorSpecification": 1,
+    "fields": {
+        "type": "object",
+        "properties": {
+            "rank": {
+                "type": "integer",
+                "description": "Rank of this highlight clip (1 = highest score)",
+                "example": 1
+            },
+            "score": {
+                "type": "number",
+                "description": "Composite engagement score from 0 to 100",
+                "example": 87.4
+            },
+            "start_time": {
+                "type": "string",
+                "description": "Clip start time formatted as HH:MM:SS",
+                "example": "01:23:45"
+            },
+            "end_time": {
+                "type": "string",
+                "description": "Clip end time formatted as HH:MM:SS",
+                "example": "01:24:30"
+            },
+            "duration_seconds": {
+                "type": "number",
+                "description": "Duration of the clip in seconds",
+                "example": 45.0
+            },
+            "detection_reasons": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                },
+                "description": "Array of trigger explanations for this highlight",
+                "example": [
+                    "audio_volume_spike_+18dB",
+                    "chat_velocity_320%",
+                    "keyword_trigger_!clip"
+                ]
+            },
+            "transcript": {
+                "type": "string",
+                "description": "Spoken text during this highlight segment",
+                "example": "Oh my god, did you see that?! That was absolutely incredible!"
+            },
+            "direct_timestamp_url": {
+                "type": "string",
+                "description": "Direct YouTube link jumping to the clip start time",
+                "example": "https://youtu.be/dQw4w9WgXcQ?t=5025"
+            },
+            "ffmpeg_command": {
+                "type": "string",
+                "description": "Copy-pasteable command to extract this clip losslessly using yt-dlp and ffmpeg",
+                "example": "ffmpeg -ss 01:23:45 -to 01:24:30 -i \"$(yt-dlp -g -f 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' 'https://www.youtube.com/watch?v=dQw4w9WgXcQ')\" -c copy clip_1.mp4"
+            }
+        }
+    },
+    "views": {
+        "overview": {
+            "title": "Highlight Clips",
+            "transformation": {
+                "fields": [
+                    "rank",
+                    "score",
+                    "start_time",
+                    "end_time",
+                    "duration_seconds",
+                    "detection_reasons",
+                    "transcript",
+                    "direct_timestamp_url",
+                    "ffmpeg_command"
+                ]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "rank": {
+                        "label": "#",
+                        "format": "number"
+                    },
+                    "score": {
+                        "label": "Score",
+                        "format": "number"
+                    },
+                    "start_time": {
+                        "label": "Start",
+                        "format": "text"
+                    },
+                    "end_time": {
+                        "label": "End",
+                        "format": "text"
+                    },
+                    "duration_seconds": {
+                        "label": "Duration (s)",
+                        "format": "number"
+                    },
+                    "detection_reasons": {
+                        "label": "Triggers",
+                        "format": "array"
+                    },
+                    "transcript": {
+                        "label": "Transcript",
+                        "format": "text"
+                    },
+                    "direct_timestamp_url": {
+                        "label": "Link",
+                        "format": "link"
+                    },
+                    "ffmpeg_command": {
+                        "label": "FFmpeg Command",
+                        "format": "text"
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,22 @@
+{
+	"$schema": "https://apify.com/schemas/v1/actor.ide.json",
+	"actorSpecification": 1,
+	"name": "youtube-highlight-clipper",
+	"title": "YouTube Highlight Clipper",
+	"description": "Analyzes long YouTube videos (VODs, podcasts, live recordings) to detect the most engaging moments using multi-signal scoring: audio peaks, chat velocity, and semantic transcription. Returns clip-ready timestamps for YouTube Shorts.",
+	"version": "1.0",
+	"buildTag": "latest",
+	"meta": {
+		"templateId": "python-standalone"
+	},
+	"environmentVariables": {
+		"GEMINI_API_KEY": "",
+		"APIFY_PROXY_PASSWORD": ""
+	},
+	"input": "./input_schema.json",
+	"output": "./output_schema.json",
+	"storages": {
+		"dataset": "./dataset_schema.json"
+	},
+	"dockerfile": "../Dockerfile"
+}

@@ -1,0 +1,29 @@
+{
+    "$schema": "https://apify.com/schemas/v1/input.ide.json",
+    "title": "YouTube Highlight Clipper",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "video_url": {
+            "title": "YouTube Video URL",
+            "sectionCaption": "Video Input",
+            "type": "string",
+            "description": "Valid YouTube video or VOD URL (e.g., https://www.youtube.com/watch?v=..., https://youtu.be/...). The Actor will analyze this video to find the most engaging highlight moments.",
+            "editor": "textfield",
+            "prefill": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        },
+        "max_clips": {
+            "title": "Maximum Clips",
+            "sectionCaption": "Output Settings",
+            "type": "integer",
+            "description": "Number of top highlight segments to return, sorted by engagement score. Each clip is between 20-60 seconds, optimized for YouTube Shorts format.",
+            "default": 5,
+            "minimum": 1,
+            "maximum": 50,
+            "editor": "number"
+        }
+    },
+    "required": [
+        "video_url"
+    ]
+}

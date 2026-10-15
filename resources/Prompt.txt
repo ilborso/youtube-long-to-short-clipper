@@ -1,0 +1,59 @@
+Act as a Senior Python Engineer and Apify SDK Expert. 
+
+Change currently logic and build a complete, production-ready Apify Actor in Python that analyzes a long YouTube video (VODs, podcasts, live recordings) to detect the most engaging moments (highlights/potential Shorts) based on multi-signal scoring: audio volume peaks (screams/excitement), audio event classification (laughter/screaming via lightweight ONNX YAMNet or acoustic features), synchronized live chat velocity/spikes, and semantic transcription.
+
+### STRICT ARCHITECTURAL CONSTRAINTS
+- DO NOT download or re-encode the full 1080p video file. The Actor must remain lightweight, fast, and keep memory usage under 1024MB-2048MB.
+- Use `yt-dlp` to fetch ONLY the low-bitrate compressed audio stream and subtitles/metadata.
+- Use `chat-downloader` (or direct YouTube live chat replay extraction) to parse live chat messages with timestamps (if chat is available).
+- If YouTube auto-subtitles exist, extract them directly with `yt-dlp`. If absent or fragmented, use Google Gemini (via `google-genai` SDK) to transcribe only the candidate highlight segments.
+- The Gemini API key must be read strictly from the Apify environment variable `GEMINI_API_KEY`.
+
+### INPUT SCHEMA (`.actor/input_schema.json`)
+The Actor must take ONLY two user inputs:
+1. `video_url` (String, required): Valid YouTube video or VOD URL.
+2. `max_clips` (Integer, optional, default: 5, min: 1, max: 50): Number of top highlight segments to return.
+
+### ALGORITHM & SCORING PIPELINE
+1. **Chat Velocity & Sentiment Signals:**
+   - Bin chat messages into 5-second sliding windows.
+   - Detect spikes exceeding the baseline moving average and detect emote/keyword patterns (e.g., "LMAO", "LOL", "OMEGALUL", "W", "GG", "WTF", "!clip").
+2. **Audio Peak & Event Signals:**
+   - Stream audio chunks via `ffmpeg` / `pydub` / `librosa`.
+   - Calculate rolling RMS (energy/dBFS) and pitch shifts to detect sudden volume spikes and screaming.
+   - Run a lightweight audio event classifier or spectral analysis to tag laughter and cheer/scream events.
+3. **Multi-Signal Fusion Score (0 - 100):**
+   - Combine Audio Score + Chat Score + Keyword Triggers.
+   - Select top non-overlapping peaks.
+   - Apply contextual windowing: Include 8-12 seconds of pre-roll before the climax and 5-8 seconds post-roll, capping clip duration between 20 and 60 seconds (Shorts format).
+4. **Enrichment with Gemini:**
+   - Use Gemini to review the segment context, refine exact `start_time` and `end_time` for natural narrative boundaries, and provide a polished transcript for each clip.
+
+### OUTPUT DELIVERABLES (Pushed to Apify Dataset)
+For each detected highlight, save an object with these exact keys:
+1. `rank`: Integer (1 to N, sorted by score descending).
+2. `score`: Float (0-100 composite score).
+3. `start_time`: String formatted as "HH:MM:SS" (or total seconds as float).
+4. `end_time`: String formatted as "HH:MM:SS" (or total seconds as float).
+5. `duration_seconds`: Number (duration in seconds).
+6. `detection_reasons`: Array of strings explaining the triggers (e.g., `["laughter_spike", "chat_velocity_320%", "high_pitch_scream"]`).
+7. `transcript`: String containing the spoken text during that fragment.
+8. `direct_timestamp_url`: String (e.g., `https://youtu.be/<video_id>?t=<start_seconds>`).
+9. `ffmpeg_command`: String containing the precise, copy-pasteable lossless cut command using `yt-dlp` and `ffmpeg` (e.g., `ffmpeg -ss <start> -to <end> -i "$(yt-dlp -g -f best "<video_url>")" -c copy clip_<rank>.mp4`).
+
+### REQUIRED PROJECT STRUCTURE
+Provide the complete codebase with all files fully implemented (no placeholders or omitted code):
+1. `.actor/actor.json`: Apify Actor configuration.
+2. `.actor/input_schema.json`: Strict 2-field schema matching specifications.
+3. `Dockerfile`: Based on `apify/actor-python:3.11`, installing system `ffmpeg`, `yt-dlp`, and necessary build tools.
+4. `requirements.txt`: Including `apify`, `yt-dlp`, `chat-downloader`, `numpy`, `scipy`, `pydub`, `google-genai`.
+5. `src/main.py`: Main Actor entrypoint orchestrating the workflow.
+6. `src/audio_analyzer.py`: Audio stream extraction, RMS/pitch/event detection.
+7. `src/chat_analyzer.py`: Synchronized chat extraction and spike analysis.
+8. `src/gemini_service.py`: Integration with Gemini API reading `GEMINI_API_KEY` from env.
+9. `README.md`: Comprehensive documentation entirely in English explaining:
+   - What the Actor does and why it is resource-efficient.
+   - Input parameters.
+   - Output dataset structure with an example JSON record.
+   - How to configure the `GEMINI_API_KEY` environment variable in Apify Console.
+   - Instructions on how to run and use the generated `ffmpeg_command`.

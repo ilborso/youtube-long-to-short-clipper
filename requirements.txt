@@ -1,0 +1,16 @@
+# Core Apify SDK
+apify < 4.0.0
+
+# YouTube video/audio extraction
+yt-dlp
+
+# Live chat replay extraction
+chat-downloader
+
+# Audio analysis (numpy, scipy for spectral/RMS, pydub for audio manipulation)
+numpy
+scipy
+pydub
+
+# Google Gemini API for transcript enrichment
+google-genai
