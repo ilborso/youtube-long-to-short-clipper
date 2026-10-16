@@ -38,6 +38,10 @@ RUN echo "Python version:" \
  && echo "All installed Python packages:" \
  && pip freeze
 
+# Pre-download faster-whisper 'tiny' model weights into cache for instant offline runtime
+RUN python3 -c 'from faster_whisper import WhisperModel; WhisperModel("tiny", device="cpu", compute_type="int8"); print("faster-whisper tiny model pre-cached successfully")'
+
+
 # Copy the remaining source code
 COPY --chown=myuser:myuser . ./
 
