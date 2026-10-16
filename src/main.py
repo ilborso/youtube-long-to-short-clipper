@@ -213,7 +213,7 @@ def fetch_video_metadata(video_url: str, proxy_url: str | None = None) -> dict[s
             "pref_lang": pref_lang,
         }
     except Exception as e:
-        Actor.log.warning(f"[Main] Failed to fetch metadata: {e}")
+        Actor.log.info(f"[Main] Failed to fetch metadata: {e}")
         return {}
 
 
@@ -288,7 +288,7 @@ def fetch_subtitles(
                     break
 
         if not sub_file:
-            Actor.log.warning("[Main] No subtitles found via yt-dlp.")
+            Actor.log.info("[Main] No subtitles found via yt-dlp.")
             return {}, []
 
         Actor.log.info(f"[Main] Subtitle file extracted: {os.path.basename(sub_file)}")
@@ -299,7 +299,7 @@ def fetch_subtitles(
 
         return {}, []
     except Exception as e:
-        Actor.log.warning(f"[Main] Subtitle extraction error: {e}")
+        Actor.log.info(f"[Main] Subtitle extraction error: {e}")
         return {}, []
 
 
@@ -323,7 +323,7 @@ def _parse_json3_subs(path: str) -> tuple[dict[float, str], list[dict[str, Any]]
                 subs[start_sec] = text
                 segments.append({"start": start_sec, "end": end_sec, "text": text})
     except Exception as e:
-        Actor.log.warning(f"[Main] json3 parse error: {e}")
+        Actor.log.info(f"[Main] json3 parse error: {e}")
     return subs, segments
 
 
@@ -361,7 +361,7 @@ def _parse_vtt_subs(path: str) -> tuple[dict[float, str], list[dict[str, Any]]]:
                         subs[start_sec] = text
                         segments.append({"start": start_sec, "end": end_sec, "text": text})
     except Exception as e:
-        Actor.log.warning(f"[Main] VTT parse error: {e}")
+        Actor.log.info(f"[Main] VTT parse error: {e}")
     return subs, segments
 
 
@@ -539,7 +539,7 @@ def download_video_file(file_url: str, output_dir: str) -> str:
             Actor.log.info(f"[Main] Video file downloaded successfully: {final_mb:.1f} MB.")
             return target_path
     except Exception as e:
-        Actor.log.warning(f"[Main] Direct HTTP streaming failed ({e}), trying yt-dlp...")
+        Actor.log.info(f"[Main] Direct HTTP streaming attempt failed ({e}), trying yt-dlp download...")
 
     # Strategy 2: yt-dlp
     try:
@@ -558,9 +558,9 @@ def download_video_file(file_url: str, output_dir: str) -> str:
                 fp = os.path.join(output_dir, f)
                 if os.path.isfile(fp) and os.path.getsize(fp) > 1000:
                     return fp
-        Actor.log.warning(f"[Main] yt-dlp download failed: {res.stderr[-300:]}")
+        Actor.log.info(f"[Main] yt-dlp download failed: {res.stderr[-300:]}")
     except Exception as e:
-        Actor.log.warning(f"[Main] yt-dlp download error: {e}")
+        Actor.log.info(f"[Main] yt-dlp download error: {e}")
 
     # Strategy 3: curl
     try:
@@ -569,7 +569,7 @@ def download_video_file(file_url: str, output_dir: str) -> str:
         if res.returncode == 0 and os.path.exists(target_path) and os.path.getsize(target_path) > 1000:
             return target_path
     except Exception as e:
-        Actor.log.warning(f"[Main] curl download error: {e}")
+        Actor.log.info(f"[Main] curl download error: {e}")
 
     raise RuntimeError(f"Could not download video file from: {file_url}")
 
@@ -595,7 +595,7 @@ def get_local_video_info(video_path: str) -> dict[str, Any]:
                     "size": int(fmt.get("size", os.path.getsize(video_path))),
                 }
     except Exception as e:
-        Actor.log.warning(f"[Main] ffprobe failed: {e}")
+        Actor.log.info(f"[Main] ffprobe metadata inspection failed: {e}")
 
     # Fallback to ffmpeg -i inspection
     try:
@@ -611,7 +611,7 @@ def get_local_video_info(video_path: str) -> dict[str, Any]:
                 "size": os.path.getsize(video_path),
             }
     except Exception as e:
-        Actor.log.warning(f"[Main] ffmpeg fallback failed: {e}")
+        Actor.log.info(f"[Main] ffmpeg fallback metadata inspection failed: {e}")
 
     return {
         "duration": 0.0,
@@ -703,11 +703,11 @@ def transcribe_audio_locally(
         )
         return subtitles_dict, subtitle_segments, all_words
     except ImportError:
-        Actor.log.warning(
+        Actor.log.info(
             "[Main] faster-whisper not installed. Local speech-to-text skipped."
         )
     except Exception as e:
-        Actor.log.warning(f"[Main] Local audio transcription error: {e}")
+        Actor.log.info(f"[Main] Local audio transcription error: {e}")
 
     return {}, [], []
 
@@ -954,7 +954,7 @@ def cut_local_video_clip(
             break
         else:
             err = res.stderr[-200:] if res.stderr else "non-zero exit code"
-            Actor.log.warning(f"[Main] ffmpeg cut failed ({desc}): {err}")
+            Actor.log.info(f"[Main] ffmpeg cut failed ({desc}): {err}")
 
     if not success:
         raise RuntimeError("ffmpeg video cut failed on all candidate strategies.")
@@ -981,9 +981,9 @@ def extract_clip_audio_bytes(clip_path: str) -> tuple[bytes, str]:
                 return f.read(), "audio/wav"
         else:
             err = res.stderr[-200:] if res.stderr else "non-zero return code"
-            Actor.log.warning(f"[Main] ffmpeg wav extraction warning: {err}")
+            Actor.log.info(f"[Main] ffmpeg wav extraction info: {err}")
     except Exception as e:
-        Actor.log.warning(f"[Main] Failed to extract audio bytes for clip: {e}")
+        Actor.log.info(f"[Main] Note: Could not extract audio bytes for clip: {e}")
     finally:
         if os.path.exists(tmp_wav):
             try:
