@@ -75,6 +75,40 @@
                 "type": "string",
                 "description": "Target social media video format and resolution profile",
                 "example": "INSTAGRAM_REELS_VERTICAL_9_16_HIGHRES_1080P_MP4"
+            },
+            "viral_hook": {
+                "type": "string",
+                "description": "First 3-second attention-grabbing on-screen hook with emoji",
+                "example": "Wait for what happens next... 🤯"
+            },
+            "Caption": {
+                "type": "string",
+                "description": "Engaging social media post description with emojis and call to action",
+                "example": "You won't believe how this turned out! Drop your thoughts below 👇"
+            },
+            "Hashtag": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                },
+                "description": "Trending and topic-specific hashtags for social posting",
+                "example": [
+                    "#shorts",
+                    "#reels",
+                    "#viral",
+                    "#podcast",
+                    "#trending"
+                ]
+            },
+            "Virality_score_description": {
+                "type": "string",
+                "description": "Detailed explanation of viral potential, retention triggers, and audience engagement",
+                "example": "Score 92/100: High emotional spike with strong curiosity gap and immediate comment trigger."
+            },
+            "subtitles_url": {
+                "type": "string",
+                "description": "Direct download link for the animated ASS karaoke subtitle file",
+                "example": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.ass"
             }
         }
     },
@@ -86,6 +120,10 @@
                     "rank",
                     "Title",
                     "score",
+                    "viral_hook",
+                    "Caption",
+                    "Hashtag",
+                    "Virality_score_description",
                     "start_time",
                     "end_time",
                     "duration_seconds",
@@ -111,6 +149,22 @@
                     "score": {
                         "label": "Score",
                         "format": "number"
+                    },
+                    "viral_hook": {
+                        "label": "Viral Hook",
+                        "format": "text"
+                    },
+                    "Caption": {
+                        "label": "Caption",
+                        "format": "text"
+                    },
+                    "Hashtag": {
+                        "label": "Hashtags",
+                        "format": "array"
+                    },
+                    "Virality_score_description": {
+                        "label": "Virality Rationale",
+                        "format": "text"
                     },
                     "start_time": {
                         "label": "Start",

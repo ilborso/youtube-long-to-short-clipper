@@ -85,6 +85,13 @@
                 "Instagram Feed Landscape - 16:9 Horizontal (1280x720 HD)",
                 "Original Aspect Ratio - No Crop (Source Resolution)"
             ]
+        },
+        "burn_subtitles": {
+            "title": "Burn-in Animated Subtitles",
+            "type": "boolean",
+            "description": "Burn dynamic animated subtitles (karaoke/Hormozi style) directly into video clips. Maximizes viewer retention on TikTok, Reels, and Shorts.",
+            "default": true,
+            "editor": "checkbox"
         }
     },
     "required": []

@@ -31,15 +31,17 @@ This Actor analyzes a YouTube video using **multi-signal scoring** to find highl
 | `max_clips` | Integer | No | `5` | Number of top highlight segments to return (1–50) |
 | `max_length` | Integer | No | `60` | Maximum duration in seconds of each selected highlight clip (10–300) |
 | `targetFormat` | String | No | `INSTAGRAM_REELS_VERTICAL_9_16_HIGHRES_1080P_MP4` | Target video format, aspect ratio, and resolution for social media clips (MP4). Supports High-Res (1080p) and Low-Res (720p) for TikTok, Instagram Reels/Stories/Feed, YouTube Shorts, or `ORIGINAL_RATIO_MP4`. |
+| `burn_subtitles` | Boolean | No | `true` | Burn dynamic animated subtitles (karaoke/Hormozi style with active word highlight) directly into video clips. Maximizes viewer retention on TikTok, Reels, and Shorts. |
 
-### Example Input (Direct Video File with Format Selection)
+### Example Input (Direct Video File with Format & Animated Subtitles)
 
 ```json
 {
     "file_video": "https://example.com/videos/podcast.mp4",
     "max_clips": 3,
     "max_length": 60,
-    "targetFormat": "INSTAGRAM_REELS_VERTICAL_9_16_HIGHRES_1080P_MP4"
+    "targetFormat": "INSTAGRAM_REELS_VERTICAL_9_16_HIGHRES_1080P_MP4",
+    "burn_subtitles": true
 }
 ```
 
@@ -50,7 +52,8 @@ This Actor analyzes a YouTube video using **multi-signal scoring** to find highl
     "video_url": "https://www.youtube.com/watch?v=jfKfPfyJRdk",
     "max_clips": 5,
     "max_length": 60,
-    "targetFormat": "TIKTOK_FEED_VERTICAL_9_16_HIGHRES_1080P_MP4"
+    "targetFormat": "TIKTOK_FEED_VERTICAL_9_16_HIGHRES_1080P_MP4",
+    "burn_subtitles": true
 }
 ```
 
@@ -63,8 +66,12 @@ Each detected highlight is pushed to the Apify dataset with these fields:
 | Field | Type | Description |
 |-------|------|-------------|
 | `rank` | Integer | Rank (1 = highest score) |
-| `Title` | String | Viral, catchy title generated for the clip |
+| `Title` | String | Catchy title generated for the clip |
 | `score` | Float | Composite engagement score (0–100) |
+| `viral_hook` | String | First 3-second attention-grabbing on-screen hook with emoji |
+| `Caption` | String | Engaging social media description with emojis, storytelling, and call to action |
+| `Hashtag` | Array | 5–8 trending and niche-specific hashtags for social posting |
+| `Virality_score_description` | String | Explanation of virality potential, retention hooks, and audience triggers |
 | `start_time` | String | Clip start in `HH:MM:SS` format |
 | `end_time` | String | Clip end in `HH:MM:SS` format |
 | `duration_seconds` | Number | Clip duration in seconds (20–60s) |
@@ -74,6 +81,7 @@ Each detected highlight is pushed to the Apify dataset with these fields:
 | `direct_timestamp_url` | String | Direct YouTube or video timestamp link (`...#t=<seconds>`) |
 | `download_url` | String | Direct download link for the cut video clip from Key-Value Store (when using `file_video`) |
 | `clip_filename` | String | Cut video filename (e.g., `clip_1.mp4`) |
+| `subtitles_url` | String | Direct download link for the animated ASS karaoke subtitle file |
 | `ffmpeg_command` | String | Ready-to-use command to extract and format this clip using yt-dlp and ffmpeg |
 
 ### Example Output Record
@@ -82,7 +90,18 @@ Each detected highlight is pushed to the Apify dataset with these fields:
 {
     "rank": 1,
     "Title": "Epic Game Winning Shot",
-    "score": 87.4,
+    "score": 92.4,
+    "viral_hook": "You won't believe this final play... 🤯",
+    "Caption": "Down to the final 3 seconds! Watch what happens next 🔥👀\n\nDrop your reaction in the comments! 👇",
+    "Hashtag": [
+        "#shorts",
+        "#reels",
+        "#tiktok",
+        "#viral",
+        "#fyp",
+        "#GameWinner"
+    ],
+    "Virality_score_description": "Score 92.4/100: High emotional volume spike with strong climax payoff, rapid chat velocity, and instant comment debate potential.",
     "start_time": "01:23:45",
     "end_time": "01:24:30",
     "duration_seconds": 45.0,
@@ -95,7 +114,10 @@ Each detected highlight is pushed to the Apify dataset with these fields:
     ],
     "transcript": "Oh my god, did you see that?! That was absolutely incredible! I can't believe that just happened!",
     "direct_timestamp_url": "https://youtu.be/jfKfPfyJRdk?t=5025",
-    "ffmpeg_command": "ffmpeg -ss 01:23:45 -to 01:24:30 -i \"$(yt-dlp -g -f 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' 'https://www.youtube.com/watch?v=jfKfPfyJRdk')\" -vf \"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:'trunc((in_w-1080)/4)*2':'trunc((in_h-1920)/4)*2',setsar=1\" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 22 -c:a aac -b:a 128k -movflags +faststart clip_1.mp4"
+    "download_url": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.mp4",
+    "subtitles_url": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.ass",
+    "clip_filename": "clip_1.mp4",
+    "ffmpeg_command": "ffmpeg -ss 01:23:45 -to 01:24:30 -i \"$(yt-dlp -g -f 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' 'https://www.youtube.com/watch?v=jfKfPfyJRdk')\" -vf \"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:'trunc((in_w-1080)/4)*2':'trunc((in_h-1920)/4)*2',setsar=1,ass='clip_1.ass'\" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 22 -c:a aac -b:a 128k -movflags +faststart clip_1.mp4"
 }
 ```
 

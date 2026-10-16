@@ -26,6 +26,12 @@ from .audio_analyzer import AudioEvent, analyze_audio, SAMPLE_RATE
 from .gemini_service import (
     detect_salient_moments_from_transcript,
     transcribe_and_title_clip,
+    generate_social_copy_kit,
+    generate_fallback_social_copy_kit,
+)
+from .subtitle_generator import (
+    get_words_for_clip,
+    generate_animated_ass_file,
 )
 
 
@@ -656,19 +662,20 @@ def extract_subtitles_from_local_video(
 
 def transcribe_audio_locally(
     audio_path: str,
-) -> tuple[dict[float, str], list[dict[str, Any]]]:
+) -> tuple[dict[float, str], list[dict[str, Any]], list[dict[str, Any]]]:
     """
     Transcribe audio file locally using faster-whisper on CPU.
-    Returns (subtitles_dict, subtitle_segments) with precise timestamps.
+    Returns (subtitles_dict, subtitle_segments, all_words) with word-level timestamps.
     """
     try:
         from faster_whisper import WhisperModel
-        Actor.log.info("[Main] Transcribing audio locally with faster-whisper (model: tiny, CPU int8)...")
+        Actor.log.info("[Main] Transcribing audio locally with faster-whisper (model: tiny, CPU int8, word timestamps)...")
         model = WhisperModel("tiny", device="cpu", compute_type="int8")
-        segments_gen, info = model.transcribe(audio_path, beam_size=1)
+        segments_gen, info = model.transcribe(audio_path, beam_size=1, word_timestamps=True)
 
         subtitles_dict: dict[float, str] = {}
         subtitle_segments: list[dict[str, Any]] = []
+        all_words: list[dict[str, Any]] = []
 
         for seg in segments_gen:
             text = seg.text.strip()
@@ -676,15 +683,25 @@ def transcribe_audio_locally(
                 subtitles_dict[round(seg.start, 2)] = text
                 subtitle_segments.append({
                     "start": round(seg.start, 2),
+                    "end": round(seg.end, 2),
                     "duration": round(seg.end - seg.start, 2),
                     "text": text,
                 })
+                if hasattr(seg, "words") and seg.words:
+                    for w in seg.words:
+                        w_text = w.word.strip()
+                        if w_text:
+                            all_words.append({
+                                "start": round(w.start, 2),
+                                "end": round(w.end, 2),
+                                "word": w_text,
+                            })
 
         Actor.log.info(
-            f"[Main] Local transcription completed: {len(subtitle_segments)} segments "
-            f"(language: {info.language}, prob: {info.language_probability:.2f})"
+            f"[Main] Local transcription completed: {len(subtitle_segments)} segments, "
+            f"{len(all_words)} word timestamps (language: {info.language}, prob: {info.language_probability:.2f})"
         )
-        return subtitles_dict, subtitle_segments
+        return subtitles_dict, subtitle_segments, all_words
     except ImportError:
         Actor.log.warning(
             "[Main] faster-whisper not installed. Local speech-to-text skipped."
@@ -692,7 +709,7 @@ def transcribe_audio_locally(
     except Exception as e:
         Actor.log.warning(f"[Main] Local audio transcription error: {e}")
 
-    return {}, []
+    return {}, [], []
 
 
 def detect_salient_moments_from_audio_events(
@@ -876,52 +893,72 @@ def cut_local_video_clip(
     end_time: str,
     output_path: str,
     target_format: str | None = None,
+    ass_subtitle_path: str | None = None,
 ) -> str:
     """
     Accurately cut a video segment using ffmpeg and re-encode to the chosen social media target format.
+    Optionally burns in animated ASS karaoke subtitles.
     Ensures clean cuts at keyframes, proper aspect ratio / resolution cropping, yuv420p color format,
     and faststart flags for instant web/social playback.
     """
     vf = get_video_filter_for_format(target_format)
 
-    cmd = [
-        "ffmpeg", "-y",
-        "-ss", str(start_time),
-        "-to", str(end_time),
-        "-i", video_path,
-    ]
+    # Prepare subtitle filter candidates if ASS file exists
+    sub_filters = []
+    if ass_subtitle_path and os.path.exists(ass_subtitle_path) and os.path.getsize(ass_subtitle_path) > 30:
+        clean_ass = ass_subtitle_path.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+        sub_filters = [f"ass='{clean_ass}'", f"subtitles='{clean_ass}'"]
+
+    candidates = []
+    for sf in sub_filters:
+        combined = f"{vf},{sf}" if vf else sf
+        candidates.append((combined, f"format + {sf[:3]} subtitles"))
     if vf:
-        cmd.extend(["-vf", vf])
+        candidates.append((vf, "format only (no subtitles)"))
+    candidates.append((None, "direct stream copy"))
 
-    cmd.extend([
-        "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "22",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-movflags", "+faststart",
-        "-avoid_negative_ts", "make_zero",
-        output_path,
-    ])
+    success = False
+    for filter_str, desc in candidates:
+        if filter_str is not None:
+            cmd = [
+                "ffmpeg", "-y",
+                "-ss", str(start_time),
+                "-to", str(end_time),
+                "-i", video_path,
+                "-vf", filter_str,
+                "-c:v", "libx264",
+                "-preset", "veryfast",
+                "-crf", "22",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                "-b:a", "128k",
+                "-movflags", "+faststart",
+                "-avoid_negative_ts", "make_zero",
+                output_path,
+            ]
+        else:
+            cmd = [
+                "ffmpeg", "-y",
+                "-ss", str(start_time),
+                "-to", str(end_time),
+                "-i", video_path,
+                "-c", "copy",
+                "-avoid_negative_ts", "make_zero",
+                output_path,
+            ]
 
-    profile_name = TARGET_FORMAT_PROFILES.get(target_format or "", {}).get("name", target_format or "ORIGINAL")
-    Actor.log.info(f"[Main] Running ffmpeg cut (format={profile_name}, vf={bool(vf)})...")
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    if res.returncode != 0:
-        Actor.log.warning(f"[Main] ffmpeg libx264 cut with format failed ({res.stderr[-200:]}), falling back to direct copy...")
-        cmd_copy = [
-            "ffmpeg", "-y",
-            "-ss", str(start_time),
-            "-to", str(end_time),
-            "-i", video_path,
-            "-c", "copy",
-            "-avoid_negative_ts", "make_zero",
-            output_path,
-        ]
-        res_copy = subprocess.run(cmd_copy, capture_output=True, text=True, timeout=120)
-        if res_copy.returncode != 0:
-            raise RuntimeError(f"ffmpeg video cut failed: {res_copy.stderr[-400:]}")
+        Actor.log.info(f"[Main] Running ffmpeg cut ({desc})...")
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if res.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+            success = True
+            break
+        else:
+            err = res.stderr[-200:] if res.stderr else "non-zero exit code"
+            Actor.log.warning(f"[Main] ffmpeg cut failed ({desc}): {err}")
+
+    if not success:
+        raise RuntimeError("ffmpeg video cut failed on all candidate strategies.")
+
     return output_path
 
 
@@ -997,7 +1034,8 @@ async def main() -> None:
             target_format = DEFAULT_TARGET_FORMAT
 
         format_name = TARGET_FORMAT_PROFILES[target_format]["name"]
-        Actor.log.info(f"[Main] Target video format: {target_format} ({format_name})")
+        burn_subtitles = bool(actor_input.get("burn_subtitles", True))
+        Actor.log.info(f"[Main] Target video format: {target_format} ({format_name}) | Burn subtitles: {burn_subtitles}")
 
         # Check for Gemini API Key in environment
         if os.environ.get("GEMINI_API_KEY", "").strip():
@@ -1023,6 +1061,7 @@ async def main() -> None:
         local_video_path: str | None = None
         subtitles_dict: dict[float, str] = {}
         subtitle_segments: list[dict[str, Any]] = []
+        all_words: list[dict[str, Any]] = []
         is_local_file = bool(file_video)
 
         try:
@@ -1066,7 +1105,7 @@ async def main() -> None:
                 else:
                     # Extract transcript locally using faster-whisper without Gemini
                     await Actor.set_status_message("Transcribing audio locally without Gemini...")
-                    subtitles_dict, subtitle_segments = await asyncio.to_thread(
+                    subtitles_dict, subtitle_segments, all_words = await asyncio.to_thread(
                         transcribe_audio_locally, wav_path
                     )
 
@@ -1244,6 +1283,21 @@ async def main() -> None:
                     detection_reasons.insert(0, headline)
                 detection_reasons.append("+10s_context_buffer")
 
+                clip_title = headline or f"Highlight #{rank}"
+
+                # Generate or enrich Social Media Copy Kit via Gemini
+                copy_kit = await generate_social_copy_kit(
+                    title=clip_title,
+                    transcript=clip_transcript,
+                    score=float(m.get("score", 85.0)),
+                    detection_reasons=detection_reasons,
+                )
+
+                viral_hook = m.get("viral_hook") or copy_kit.get("viral_hook", "")
+                caption = m.get("caption") or copy_kit.get("Caption", "")
+                hashtags = m.get("hashtags") or copy_kit.get("Hashtag", [])
+                virality_score_desc = m.get("virality_score_description") or copy_kit.get("Virality_score_description", "")
+
                 item: dict[str, Any] = {
                     "rank": rank,
                     "score": round(m.get("score", 85.0), 1),
@@ -1251,26 +1305,49 @@ async def main() -> None:
                     "end_time": end_hhmmss,
                     "duration_seconds": duration,
                     "target_format": target_format,
+                    "viral_hook": viral_hook,
+                    "Caption": caption,
+                    "Hashtag": hashtags,
+                    "Virality_score_description": virality_score_desc,
                     "detection_reasons": detection_reasons,
                 }
 
                 vf = get_video_filter_for_format(target_format)
 
+                ass_path: str | None = None
+                if is_local_file and local_video_path and work_dir and burn_subtitles:
+                    clip_words = get_words_for_clip(all_words, subtitle_segments, start_sec, end_sec)
+                    if clip_words:
+                        ass_filename = f"clip_{rank}.ass"
+                        ass_path = os.path.join(work_dir, ass_filename)
+                        target_info = TARGET_FORMAT_PROFILES.get(target_format, {})
+                        res_w = target_info.get("width") or 1080
+                        res_h = target_info.get("height") or 1920
+                        generate_animated_ass_file(clip_words, ass_path, width=res_w, height=res_h)
+                        Actor.log.info(
+                            f"[Main] Generated animated karaoke subtitles for clip #{rank} ({len(clip_words)} words)"
+                        )
+
                 if is_local_file and local_video_path and work_dir:
                     # Cut clip from local video using ffmpeg
                     clip_filename = f"clip_{rank}.mp4"
                     clip_path = os.path.join(work_dir, clip_filename)
+                    sub_log = "with animated subtitles" if ass_path else "without subtitles"
                     Actor.log.info(
-                        f"[Main] Cutting clip #{rank}: {start_hhmmss} → {end_hhmmss} ({duration}s) | format={target_format}..."
+                        f"[Main] Cutting clip #{rank}: {start_hhmmss} → {end_hhmmss} ({duration}s) | format={target_format} | {sub_log}..."
                     )
                     await asyncio.to_thread(
-                        cut_local_video_clip, local_video_path, start_hhmmss, end_hhmmss, clip_path, target_format
+                        cut_local_video_clip,
+                        local_video_path,
+                        start_hhmmss,
+                        end_hhmmss,
+                        clip_path,
+                        target_format,
+                        ass_path,
                     )
 
-                    # Clip title from salient moment headline, transcript extracted locally from video subtitles
-                    clip_title = headline or f"Highlight #{rank}"
                     Actor.log.info(
-                        f"[Main] Clip #{rank}: Title='{clip_title}' | Transcript='{clip_transcript[:80]}...'"
+                        f"[Main] Clip #{rank}: Title='{clip_title}' | Viral Hook='{viral_hook}' | Transcript='{clip_transcript[:80]}...'"
                     )
 
                     # Upload trimmed clip to Key-Value Store for instant download
@@ -1280,6 +1357,12 @@ async def main() -> None:
                     download_url = await kvs.get_public_url(clip_filename)
                     clip_size_mb = round(os.path.getsize(clip_path) / (1024 * 1024), 2)
 
+                    # Optionally store ASS subtitle file in Key-Value Store
+                    if ass_path and os.path.exists(ass_path):
+                        with open(ass_path, "rb") as af:
+                            await kvs.set_value(f"clip_{rank}.ass", af.read(), content_type="text/plain; charset=utf-8")
+                        item["subtitles_url"] = await kvs.get_public_url(f"clip_{rank}.ass")
+
                     item["Title"] = clip_title
                     item["title"] = clip_title
                     item["transcript"] = clip_transcript
@@ -1287,10 +1370,11 @@ async def main() -> None:
                     item["clip_size_mb"] = clip_size_mb
                     item["download_url"] = download_url
                     item["direct_timestamp_url"] = f"{file_video}#t={int(start_sec)}"
+                    sub_filter_str = f",ass='clip_{rank}.ass'" if (burn_subtitles and ass_path) else ""
                     if vf:
                         item["ffmpeg_command"] = (
                             f'ffmpeg -ss {start_hhmmss} -to {end_hhmmss} -i "{file_video}" '
-                            f'-vf "{vf}" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 22 '
+                            f'-vf "{vf}{sub_filter_str}" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 22 '
                             f'-c:a aac -b:a 128k -movflags +faststart {clip_filename}'
                         )
                     else:
@@ -1298,17 +1382,17 @@ async def main() -> None:
                             f'ffmpeg -ss {start_hhmmss} -to {end_hhmmss} -i "{file_video}" -c copy {clip_filename}'
                         )
                 else:
-                    clip_title = headline or f"Highlight #{rank}"
                     item["Title"] = clip_title
                     item["title"] = clip_title
                     item["transcript"] = clip_transcript
                     timestamp_url = f"https://youtu.be/{video_id}?t={int(start_sec)}"
+                    sub_filter_str = f",ass='clip_{rank}.ass'" if burn_subtitles else ""
                     if vf:
                         ffmpeg_cmd = (
                             f'ffmpeg -ss {start_hhmmss} -to {end_hhmmss} '
                             f'-i "$(yt-dlp -g -f \'bestvideo[ext=mp4]+bestaudio[ext=m4a]'
                             f'/best[ext=mp4]/best\' \'{canonical_url}\')" '
-                            f'-vf "{vf}" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 22 '
+                            f'-vf "{vf}{sub_filter_str}" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 22 '
                             f'-c:a aac -b:a 128k -movflags +faststart clip_{rank}.mp4'
                         )
                     else:

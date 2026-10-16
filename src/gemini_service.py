@@ -151,7 +151,11 @@ Respond in this EXACT JSON format (no markdown code fences, pure JSON only):
       "score": <float between 70.0 and 99.0>,
       "headline": "<punchy hook/title>",
       "detection_reasons": ["<reason1>", "<reason2>"],
-      "summary": "<brief summary>"
+      "summary": "<brief summary>",
+      "viral_hook": "<punchy 3-5 word on-screen hook with emoji for first 3 seconds>",
+      "caption": "<engaging social media caption with emojis and call to action>",
+      "hashtags": ["#shorts", "#reels", "#viral", "<relevant_tag1>", "<relevant_tag2>"],
+      "virality_score_description": "<explanation of viral potential, retention hook, and emotional trigger>"
     }}
   ]
 }}
@@ -395,6 +399,10 @@ async def detect_salient_moments_from_transcript(
                 "headline": str(h.get("headline", "")),
                 "detection_reasons": list(h.get("detection_reasons", ["salient_moment"])),
                 "summary": str(h.get("summary", "")),
+                "viral_hook": str(h.get("viral_hook", "")),
+                "caption": str(h.get("caption", "")),
+                "hashtags": list(h.get("hashtags", [])),
+                "virality_score_description": str(h.get("virality_score_description", "")),
             })
 
         valid_highlights.sort(key=lambda x: x["score"], reverse=True)
@@ -483,5 +491,119 @@ Respond in this EXACT JSON format (pure JSON only, no markdown code fences):
         Actor.log.error(f"[GeminiService] Clip audio transcription error: {e}")
 
     return {"title": fallback_title, "transcript": fallback_transcript}
+
+
+def generate_fallback_social_copy_kit(
+    title: str,
+    transcript: str,
+    score: float = 85.0,
+    detection_reasons: list[str] | None = None,
+) -> dict[str, Any]:
+    """Generate high-quality algorithmic fallback for the Social Media Copy Kit."""
+    import re
+    reasons_str = ", ".join(detection_reasons or ["high engagement spike"])
+    clean_words = [w.capitalize() for w in re.sub(r"[^\w\s]", "", title).split() if len(w) > 2]
+    topic_tag = f"#{''.join(clean_words[:2])}" if clean_words else "#Trending"
+
+    clean_hook = title.strip()
+    if clean_hook.lower().startswith("highlight at") or not clean_hook:
+        clean_hook = "Wait for this moment... 🤯"
+    elif not any(c in clean_hook for c in ["!", "?", "🔥", "🤯", "👀"]):
+        clean_hook = f"{clean_hook} 😱"
+
+    quote_snippet = transcript.strip()[:140] if transcript else "Watch this clip to the end!"
+    return {
+        "viral_hook": clean_hook[:80],
+        "Caption": (
+            f"You won't believe what happened! 👀🔥\n\n"
+            f"\"{quote_snippet}...\"\n\n"
+            f"What are your thoughts on this? Drop a comment below! 👇"
+        ),
+        "Hashtag": ["#shorts", "#reels", "#tiktok", "#viral", "#fyp", topic_tag],
+        "Virality_score_description": (
+            f"Score {score:.1f}/100: High engagement moment triggered by {reasons_str} "
+            f"with strong emotional payoff and high comment potential."
+        ),
+    }
+
+
+async def generate_social_copy_kit(
+    title: str,
+    transcript: str,
+    score: float = 85.0,
+    detection_reasons: list[str] | None = None,
+) -> dict[str, Any]:
+    """
+    Use Gemini AI to generate a complete Social Media Copy Kit for a clip:
+    - viral_hook (opening 3-second hook)
+    - Caption (social media description with emojis & CTA)
+    - Hashtag (list of 5-8 relevant and trending hashtags)
+    - Virality_score_description (rationale for the virality score)
+    """
+    fallback = generate_fallback_social_copy_kit(title, transcript, score, detection_reasons)
+    client, config = _get_client()
+    if client is None:
+        return fallback
+
+    prompt = f"""You are an elite viral social media editor for TikTok, YouTube Shorts, and Instagram Reels.
+Given this video highlight clip:
+- Title: "{title}"
+- Transcript: "{transcript[:600]}"
+- Virality Score: {score}/100
+- Triggers: {', '.join(detection_reasons or ['salient_moment'])}
+
+Generate a complete Social Media Copy Kit for this clip.
+Respond in this EXACT JSON format (no markdown code fences, pure JSON only):
+{{
+  "viral_hook": "<punchy 3-5 word on-screen hook with emoji for the first 3 seconds>",
+  "Caption": "<engaging social media description with emojis, narrative context, and call to action>",
+  "Hashtag": ["#shorts", "#reels", "#tiktok", "<3-5 niche tags>"],
+  "Virality_score_description": "<concise explanation of viral retention factors and audience emotional triggers>"
+}}"""
+
+    try:
+        model_name = get_model_name()
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=model_name,
+            contents=prompt,
+            config=config,
+        )
+        if response and response.text:
+            import json
+            import re
+            text = response.text.strip()
+            if text.startswith("```"):
+                lines = text.split("\n")
+                lines = [l for l in lines if not l.strip().startswith("```")]
+                text = "\n".join(lines).strip()
+
+            data = None
+            try:
+                data = json.loads(text)
+            except Exception:
+                m = re.search(r"\{.*\}", text, re.DOTALL)
+                if m:
+                    try:
+                        data = json.loads(m.group(0))
+                    except Exception:
+                        pass
+
+            if isinstance(data, dict):
+                v_hook = str(data.get("viral_hook", "")).strip() or fallback["viral_hook"]
+                v_caption = str(data.get("Caption", data.get("caption", ""))).strip() or fallback["Caption"]
+                v_tags = list(data.get("Hashtag", data.get("hashtags", []))) or fallback["Hashtag"]
+                v_desc = str(data.get("Virality_score_description", data.get("virality_score_description", ""))).strip() or fallback["Virality_score_description"]
+                return {
+                    "viral_hook": v_hook,
+                    "Caption": v_caption,
+                    "Hashtag": v_tags,
+                    "Virality_score_description": v_desc,
+                }
+    except Exception as e:
+        Actor.log.warning(f"[GeminiService] Failed to generate social copy kit: {e}")
+
+    return fallback
+
 
 
