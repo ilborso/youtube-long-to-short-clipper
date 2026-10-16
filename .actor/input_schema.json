@@ -9,21 +9,21 @@
             "sectionCaption": "Video Input",
             "type": "string",
             "description": "Direct URL to a video file (.mp4, .mkv, .mov, .webm, etc.) to download and analyze locally. Mutually exclusive with 'youtube_url' (provide one or the other, not both). When specified, downloads the video, detects salient moments, cuts the video into clips, and populates 'download_url' with the clip link while 'Download Link' is null.",
-            "editor": "textfield"
+            "editor": "textfield",
+            "prefill": "https://github.com/ilborso/resources/raw/refs/heads/main/Mido.mp4"
         },
         "youtube_url": {
             "title": "YouTube Video URL ($)",
             "type": "string",
             "description": "Valid YouTube video or VOD URL (e.g., https://www.youtube.com/watch?v=..., https://youtu.be/...). Mutually exclusive with 'file_video' (provide one or the other, not both). When specified, analyzes YouTube transcripts and populates 'Download Link' with the YouTube timestamp link while 'download_url' is empty. Extra-cost for proxy usage will be charged",
-            "editor": "textfield",
-            "prefill": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+            "editor": "textfield"
         },
         "max_clips": {
             "title": "Maximum Clips",
             "sectionCaption": "Output Settings",
             "type": "integer",
             "description": "Number of top highlight segments to return, sorted by engagement score.",
-            "default": 5,
+            "default": 1,
             "minimum": 1,
             "maximum": 50,
             "editor": "number"
@@ -32,7 +32,7 @@
             "title": "Maximum Clip Length (seconds)",
             "type": "integer",
             "description": "Maximum duration in seconds of each selected highlight clip (including context buffers). Optimized for YouTube Shorts (e.g. 60s).",
-            "default": 60,
+            "default": 20,
             "minimum": 10,
             "maximum": 300,
             "editor": "number"
@@ -41,7 +41,7 @@
             "title": "Target Video Format (Social Media MP4)",
             "type": "string",
             "description": "Target aspect ratio and resolution for the generated MP4 clips (TikTok, Instagram, YouTube Shorts, etc.).",
-            "default": "INSTAGRAM_REELS_VERTICAL_9_16_HIGHRES_1080P_MP4",
+            "default": "INSTAGRAM_FEED_SQUARE_1_1_LOWRES_720P_MP",
             "editor": "select",
             "enum": [
                 "INSTAGRAM_REELS_VERTICAL_9_16_HIGHRES_1080P_MP4",
