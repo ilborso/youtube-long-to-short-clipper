@@ -11,7 +11,7 @@ The Actor runs an automated pipeline to ingest, analyze, and produce ready-to-us
 4. **Context Framing & Subtitles**: Attaches balanced pre-roll and post-roll context buffers around each highlight and generates dynamic animated karaoke subtitles.
 5. **Output Generation**: Trims downloadable MP4 video clips (for `file_video`) or produces direct timestamp links (for `youtube_url`), accompanied by complete social media copy kits (`viral_hook`, `Caption`, `Hashtag`, `Virality_score_description`, `transcript`) and ready-to-use FFmpeg commands.
 
-A visual overview of the end-to-end processing pipeline is shown below (also available via [actor_workflow_diagram.png](resources/actor_workflow_diagram.png)):
+A visual overview of the end-to-end processing pipeline is shown below:
 
 ![Actor Workflow Diagram](https://raw.githubusercontent.com/ilborso/resources/266c2e480a3f96a1c157d805be88dfac74200635/actor_workflow_diagram.png)
 
