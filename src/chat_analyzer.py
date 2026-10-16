@@ -88,7 +88,7 @@ def fetch_chat_messages(video_url: str, proxy_url: str | None = None) -> list[di
         return messages
 
     except Exception as e:
-        Actor.log.warning(f"[ChatAnalyzer] Could not fetch chat (may not be a live VOD): {e}")
+        Actor.log.info(f"[ChatAnalyzer] Could not fetch chat (may not be a live VOD): {e}")
         return []
 
 

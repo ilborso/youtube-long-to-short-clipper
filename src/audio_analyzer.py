@@ -241,11 +241,11 @@ def download_audio_stream(
                     return os.path.join(output_dir, f)
 
         last_error = result.stderr[-1000:] if result.stderr else f"Exit code {result.returncode}"
-        Actor.log.warning(
+        Actor.log.info(
             f"[AudioAnalyzer] yt-dlp attempt {attempt}/3 failed (exit {result.returncode}): {last_error[:300]}"
         )
 
-    Actor.log.error(f"[AudioAnalyzer] All 3 download attempts failed. Stderr: {last_error}")
+    Actor.log.info(f"[AudioAnalyzer] All 3 download attempts failed. Stderr: {last_error}")
     raise RuntimeError(f"yt-dlp audio download failed after 3 attempts: {last_error}")
 
 

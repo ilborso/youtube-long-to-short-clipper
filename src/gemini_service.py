@@ -68,9 +68,9 @@ def _get_client():
     _load_env_file()
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
-        Actor.log.warning(
-            "[GeminiService] GEMINI_API_KEY environment variable is not set or empty. "
-            "Gemini AI highlights detection will be skipped."
+        Actor.log.info(
+            "[GeminiService] Note: GEMINI_API_KEY environment variable is not set or empty. "
+            "Gemini AI highlights detection will use heuristic fallbacks."
         )
         return None, None
 
@@ -93,7 +93,7 @@ def _get_client():
         )
         return _client, _genai_config
     except Exception as e:
-        Actor.log.error(f"[GeminiService] Failed to initialize Gemini client: {e}")
+        Actor.log.info(f"[GeminiService] Failed to initialize Gemini client: {e}")
         return None, None
 
 
@@ -219,7 +219,7 @@ async def refine_highlight(
         )
 
         if not response or not response.text:
-            Actor.log.warning("[GeminiService] Empty response from Gemini.")
+            Actor.log.info("[GeminiService] Received empty response from Gemini during boundary refinement.")
             return {
                 "refined_start_seconds": start_seconds,
                 "refined_end_seconds": end_seconds,
@@ -259,9 +259,9 @@ async def refine_highlight(
         }
 
     except json.JSONDecodeError as e:
-        Actor.log.warning(f"[GeminiService] Could not parse Gemini JSON response: {e}")
+        Actor.log.info(f"[GeminiService] Could not parse Gemini JSON response for boundary refinement: {e}")
     except Exception as e:
-        Actor.log.warning(f"[GeminiService] Gemini API error: {e}")
+        Actor.log.info(f"[GeminiService] Gemini API error during boundary refinement: {e}")
 
     return {
         "refined_start_seconds": start_seconds,
@@ -326,7 +326,7 @@ async def detect_salient_moments_from_transcript(
     """
     client, config = _get_client()
     if client is None:
-        Actor.log.warning("[GeminiService] Gemini client not configured, skipping AI detection.")
+        Actor.log.info("[GeminiService] Gemini client not configured, skipping AI detection.")
         return []
 
     def _fmt_time(s: float) -> str:
@@ -349,7 +349,7 @@ async def detect_salient_moments_from_transcript(
         model_name = get_model_name()
         Actor.log.info(
             f"[GeminiService] Analyzing video transcript with Gemini (model: {model_name}) "
-            f"to detect top {max_clips} highlights (max_length={max_length}s)..."
+            f"to detect top {max_clips} highlights (max_length={max_length}s, prompt chars: {len(prompt)})..."
         )
         response = await asyncio.to_thread(
             client.models.generate_content,
@@ -359,7 +359,7 @@ async def detect_salient_moments_from_transcript(
         )
 
         if not response or not response.text:
-            Actor.log.warning("[GeminiService] Empty response from Gemini.")
+            Actor.log.info("[GeminiService] Empty response received from Gemini for salient moments.")
             return []
 
         import json
@@ -410,7 +410,7 @@ async def detect_salient_moments_from_transcript(
         return valid_highlights[:max_clips]
 
     except Exception as e:
-        Actor.log.warning(f"[GeminiService] Failed to detect salient moments via Gemini: {e}")
+        Actor.log.info(f"[GeminiService] Failed to detect salient moments via Gemini: {e}")
         return []
 
 
@@ -426,7 +426,7 @@ async def transcribe_and_title_clip(
     """
     client, config = _get_client()
     if client is None or not audio_bytes:
-        Actor.log.warning("[GeminiService] Gemini client unavailable or empty audio bytes.")
+        Actor.log.info("[GeminiService] Gemini client unavailable or empty audio bytes for clip transcription.")
         return {"title": fallback_title, "transcript": fallback_transcript}
 
     import json
@@ -488,7 +488,7 @@ Respond in this EXACT JSON format (pure JSON only, no markdown code fences):
             elif text:
                 return {"title": fallback_title, "transcript": text}
     except Exception as e:
-        Actor.log.error(f"[GeminiService] Clip audio transcription error: {e}")
+        Actor.log.info(f"[GeminiService] Clip audio transcription error: {e}")
 
     return {"title": fallback_title, "transcript": fallback_transcript}
 
@@ -563,6 +563,9 @@ Respond in this EXACT JSON format (no markdown code fences, pure JSON only):
 
     try:
         model_name = get_model_name()
+        Actor.log.info(
+            f"[GeminiService] Generating Social Media Copy Kit via Gemini (model: {model_name}) for '{title[:50]}'..."
+        )
         response = await asyncio.to_thread(
             client.models.generate_content,
             model=model_name,
@@ -594,6 +597,9 @@ Respond in this EXACT JSON format (no markdown code fences, pure JSON only):
                 v_caption = str(data.get("Caption", data.get("caption", ""))).strip() or fallback["Caption"]
                 v_tags = list(data.get("Hashtag", data.get("hashtags", []))) or fallback["Hashtag"]
                 v_desc = str(data.get("Virality_score_description", data.get("virality_score_description", ""))).strip() or fallback["Virality_score_description"]
+                Actor.log.info(
+                    f"[GeminiService] Generated Social Media Copy Kit: Hook='{v_hook}' | Hashtags={v_tags}"
+                )
                 return {
                     "viral_hook": v_hook,
                     "Caption": v_caption,
@@ -601,7 +607,7 @@ Respond in this EXACT JSON format (no markdown code fences, pure JSON only):
                     "Virality_score_description": v_desc,
                 }
     except Exception as e:
-        Actor.log.warning(f"[GeminiService] Failed to generate social copy kit: {e}")
+        Actor.log.info(f"[GeminiService] Failed to generate social copy kit: {e}")
 
     return fallback
 
