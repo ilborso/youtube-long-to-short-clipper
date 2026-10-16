@@ -18,8 +18,8 @@ Output
     "end_time": "00:00:25",
     "duration_seconds": 25,
     "target_format": "INSTAGRAM_REELS_VERTICAL_9_16_LOWRES_720P_MP4",
-    "viral_hook": "L'orologio del momento! ⌚🔥",
-    "Caption": "Il Mido Multifort TV Big Date ha conquistato tutti! 🤩 Dal grande successo del design anni '70 fino alle nuove colorazioni e alla versione in titanio. Qual è la vostra referenza preferita? Fatecelo sapere nei commenti! 👇💬",
+    "viral_hook": "L'orologio del momento!",
+    "Caption": "Il Mido Multifort TV Big Date ha conquistato tutti! Dal grande successo del design anni '70 fino alle nuove colorazioni e alla versione in titanio. Qual è la vostra referenza preferita? Fatecelo sapere nei commenti!",
     "Hashtag": [
       "#shorts",
       "#reels",
@@ -41,8 +41,9 @@ Output
     "transcript": "Ciao a tutti gli appassionati di rologi. In multi-fortivi è uno dei design di maggior successo tra tutti i quali proposti da mido negli ultimi anni. In 2023, Marchio Svizzero aveva avuto la giusta intuizione di reprendere lo stile a ti vu molto popular negli anni 70. Successivamente, la collezione se allargata, introducendo le nuove colorazioni alcune disseni speciali, dei varianti chronografo, una splendida referenza in titaneo di cui vi avevo parlato lo scorso anno e anche",
     "clip_filename": "clip_1.mp4",
     "clip_size_mb": 4.21,
-    "download_link": "https://api.apify.com/v2/key-value-stores/8M8ar4unHe2NpupnU/records/clip_1.mp4?signature=RQGPPpUdLJJn6Mq9uAv8",
     "download_url": "https://api.apify.com/v2/key-value-stores/8M8ar4unHe2NpupnU/records/clip_1.mp4?signature=RQGPPpUdLJJn6Mq9uAv8",
+    "download_link": null,
+    "Download Link": null,
     "ffmpeg_command": "ffmpeg -ss 00:00:00 -to 00:00:25 -i \"https://github.com/ilborso/resources/raw/66376ce5f7c92e9c487d5fd21ec1773764c740c8/Mido.mp4\" -vf \"scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280:'trunc((in_w-720)/4)*2':'trunc((in_h-1280)/4)*2',setsar=1,ass='clip_1.ass'\" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 22 -c:a aac -b:a 128k -movflags +faststart clip_1.mp4"
   },
   {
@@ -52,8 +53,8 @@ Output
     "end_time": "00:00:55",
     "duration_seconds": 25,
     "target_format": "INSTAGRAM_REELS_VERTICAL_9_16_LOWRES_720P_MP4",
-    "viral_hook": "Il nuovo Mido imperdibile! ⚡️",
-    "Caption": "Un classico della collezione che non delude mai, ma oggi si passa al livello superiore! 🤯 Scopriamo insieme il nuovo Mido Multifort TV Big Date Chronometer, pensato per chi cerca precisione assoluta e un quadrante super raffinato. Voi cosa ne pensate di questa novità? Fatecelo sapere nei commenti! 👇✨",
+    "viral_hook": "Il nuovo Mido imperdibile!",
+    "Caption": "Un classico della collezione che non delude mai, ma oggi si passa al livello superiore! Scopriamo insieme il nuovo Mido Multifort TV Big Date Chronometer, pensato per chi cerca precisione assoluta e un quadrante super raffinato. Voi cosa ne pensate di questa novità? Fatecelo sapere nei commenti!",
     "Hashtag": [
       "#shorts",
       "#reels",
@@ -74,8 +75,9 @@ Output
     "transcript": "modello che ho in collezione fin dall'ancio e che mi ritrovo a utilizzare molto spesso proprio per la sua versatilità. Oggi arriva un'altra novità, pensata per i più exigenti in fatto di precisione di marcia e perché alla ricerca di un quadrante un po' più raffinato. Scope ma insieme il nuovo mido multi-fortivi Big Date Chrometer.",
     "clip_filename": "clip_2.mp4",
     "clip_size_mb": 4.39,
-    "download_link": "https://api.apify.com/v2/key-value-stores/8M8ar4unHe2NpupnU/records/clip_2.mp4?signature=1yY77wr06PVgNsdTz95vw",
     "download_url": "https://api.apify.com/v2/key-value-stores/8M8ar4unHe2NpupnU/records/clip_2.mp4?signature=1yY77wr06PVgNsdTz95vw",
+    "download_link": null,
+    "Download Link": null,
     "ffmpeg_command": "ffmpeg -ss 00:00:30 -to 00:00:55 -i \"https://github.com/ilborso/resources/raw/66376ce5f7c92e9c487d5fd21ec1773764c740c8/Mido.mp4\" -vf \"scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280:'trunc((in_w-720)/4)*2':'trunc((in_h-1280)/4)*2',setsar=1,ass='clip_2.ass'\" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 22 -c:a aac -b:a 128k -movflags +faststart clip_2.mp4"
   }
 ]
