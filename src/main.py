@@ -378,13 +378,14 @@ def get_transcript_for_range(
 
 
 def format_transcript_for_prompt(segments: list[dict[str, Any]], max_chars: int = 45_000) -> str:
-    """Format subtitle segments with HH:MM:SS timestamps for AI prompt."""
+    """Format subtitle segments with HH:MM:SS timestamps and second counts for AI prompt."""
     lines = []
     for s in segments:
         h = int(s["start"] // 3600)
         m = int((s["start"] % 3600) // 60)
         sec = int(s["start"] % 60)
-        time_tag = f"[{h:02d}:{m:02d}:{sec:02d}]"
+        s_int = int(s["start"])
+        time_tag = f"[{h:02d}:{m:02d}:{sec:02d} ({s_int}s)]"
         lines.append(f"{time_tag} {s['text']}")
     full_text = "\n".join(lines)
     if len(full_text) > max_chars:
@@ -1013,6 +1014,14 @@ def cut_local_video_clip(
     Accurately cut a video segment using ffmpeg and re-encode to the chosen social media target format.
     Optionally burns in animated ASS karaoke subtitles, normalizes audio to -14 LUFS, and applies custom layout.
     """
+    s_sec = hhmmss_to_seconds(start_time)
+    e_sec = hhmmss_to_seconds(end_time)
+    if e_sec <= s_sec:
+        raise ValueError(
+            f"cut_local_video_clip invalid time range: start={start_time} ({s_sec:.1f}s), "
+            f"end={end_time} ({e_sec:.1f}s). End time must be greater than start time."
+        )
+
     vf = get_video_filter_for_format(
         target_format,
         layout_mode=layout_mode,
@@ -1321,7 +1330,12 @@ async def main() -> None:
                         max_length=max_length,
                         focus_topic=focus_topic,
                     )
-                    Actor.log.info(f"[Main] Gemini AI returned {len(moments)} candidate highlight moments.")
+                    if video_duration > 0:
+                        moments = [
+                            m for m in moments
+                            if float(m.get("core_start_seconds", 0)) < video_duration
+                        ]
+                    Actor.log.info(f"[Main] Gemini AI returned {len(moments)} valid highlight moments.")
 
                 # Fallback to audio event spikes if Gemini is not configured or returned no moments
                 if not moments:
@@ -1425,6 +1439,11 @@ async def main() -> None:
                     max_length=max_length,
                     focus_topic=focus_topic,
                 )
+                if video_duration > 0:
+                    moments = [
+                        m for m in moments
+                        if float(m.get("core_start_seconds", 0)) < video_duration
+                    ]
 
                 if not moments:
                     Actor.log.info("[Main] Gemini returned no moments or is unconfigured. Running heuristic transcript analyzer...")
@@ -1454,27 +1473,42 @@ async def main() -> None:
             kvs = await Actor.open_key_value_store()
 
             for rank, m in enumerate(moments, start=1):
-                core_start = float(m["core_start_seconds"])
-                core_end = float(m["core_end_seconds"])
-                if core_end <= core_start:
-                    core_end = core_start + 1.0
+                try:
+                    core_start = float(m.get("core_start_seconds", 0))
+                    core_end = float(m.get("core_end_seconds", 0))
+                except (ValueError, TypeError):
+                    Actor.log.warning(f"[Main] Skipping clip #{rank}: invalid timestamps in moment {m}")
+                    continue
 
-                if (core_end - core_start) > max_length:
-                    core_end = core_start + max_length
+                if video_duration > 0:
+                    if core_start >= video_duration:
+                        Actor.log.warning(
+                            f"[Main] Skipping clip #{rank}: start {core_start:.1f}s >= video duration {video_duration:.1f}s."
+                        )
+                        continue
+                    core_end = min(video_duration, core_end)
+
+                if core_end <= core_start:
+                    core_end = min(video_duration if video_duration > 0 else core_start + 1.0, core_start + 1.0)
+                    if core_end <= core_start:
+                        core_start = max(0.0, core_end - 1.0)
 
                 # Context buffer: 10 seconds before and 10 seconds after
                 raw_start = max(0.0, core_start - 10.0)
-                raw_end = min(video_duration, core_end + 10.0)
+                raw_end = min(video_duration, core_end + 10.0) if video_duration > 0 else core_end + 10.0
+                if raw_end <= raw_start:
+                    raw_end = min(video_duration if video_duration > 0 else raw_start + 20.0, raw_start + 20.0)
+
                 total_duration = raw_end - raw_start
 
                 # Enforce max_length constraint
                 if total_duration > max_length:
                     excess = total_duration - max_length
-                    pre_trim = min(core_start - raw_start, excess / 2.0)
-                    post_trim = min(raw_end - core_end, excess - pre_trim)
+                    pre_trim = min(max(0.0, core_start - raw_start), excess / 2.0)
+                    post_trim = min(max(0.0, raw_end - core_end), excess - pre_trim)
                     remaining = excess - (pre_trim + post_trim)
                     if remaining > 0:
-                        pre_trim += min(core_start - (raw_start + pre_trim), remaining)
+                        pre_trim += min(max(0.0, core_start - (raw_start + pre_trim)), remaining)
                         remaining = excess - (pre_trim + post_trim)
                     if remaining > 0:
                         post_trim += remaining
@@ -1486,9 +1520,21 @@ async def main() -> None:
                     end_sec = raw_end
 
                 start_sec = max(0.0, start_sec)
-                end_sec = min(video_duration, max(start_sec + 1.0, end_sec))
+                if video_duration > 0:
+                    start_sec = min(max(0.0, video_duration - 1.0), start_sec)
+                    end_sec = min(video_duration, max(start_sec + 1.0, end_sec))
+                else:
+                    end_sec = max(start_sec + 1.0, end_sec)
+
                 if (end_sec - start_sec) > max_length:
                     end_sec = start_sec + max_length
+                    if video_duration > 0 and end_sec > video_duration:
+                        end_sec = video_duration
+                        start_sec = max(0.0, end_sec - max_length)
+
+                if end_sec <= start_sec:
+                    Actor.log.warning(f"[Main] Skipping clip #{rank}: invalid window [{start_sec:.1f}s -> {end_sec:.1f}s].")
+                    continue
 
                 duration = round(end_sec - start_sec, 2)
                 start_hhmmss = seconds_to_hhmmss(start_sec)
