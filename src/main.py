@@ -1515,11 +1515,17 @@ async def main() -> None:
             await Actor.set_value("OUTPUT", results, content_type="application/json")
 
             Actor.log.info(
-                f"[Main] ✅ Pipeline complete! Successfully stored {len(results)} clips."
+                f"[Main] Pipeline complete! Successfully stored {len(results)} clips."
             )
             await Actor.set_status_message(
                 f"Completed: {len(results)} highlights generated for '{video_title}'"
             )
+
+            # If youtube_url is provided and everything succeeded, charge the Apify event
+            if youtube_url:
+                Actor.log.info("[Main] Emitting Apify charge event 'proxy-enabled' for YouTube processing...")
+                await Actor.charge(event_name='proxy-enabled')
+                Actor.log.info("[Main] Successfully emitted charge event 'proxy-enabled'.")
 
             Actor.log.info("[Main] Generated Clips Overview:")
             for r in results:
