@@ -13,7 +13,7 @@ The Actor runs an automated pipeline to ingest, analyze, and produce ready-to-us
 
 A visual overview of the end-to-end processing pipeline is shown below:
 
-![Actor Workflow Diagram](https://raw.githubusercontent.com/ilborso/resources/266c2e480a3f96a1c157d805be88dfac74200635/actor_workflow_diagram.png)
+![Actor Workflow Diagram](https://raw.githubusercontent.com/ilborso/resources/refs/heads/main/actor_workflow_diagram.png)
 
 ---
 
