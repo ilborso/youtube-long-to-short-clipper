@@ -41,7 +41,7 @@
             "title": "Target Video Format (Social Media MP4)",
             "type": "string",
             "description": "Target aspect ratio and resolution for the generated MP4 clips (TikTok, Instagram, YouTube Shorts, etc.).",
-            "default": "INSTAGRAM_FEED_SQUARE_1_1_LOWRES_720P_MP",
+            "default": "INSTAGRAM_FEED_SQUARE_1_1_LOWRES_720P_MP4",
             "editor": "select",
             "enum": [
                 "INSTAGRAM_REELS_VERTICAL_9_16_HIGHRES_1080P_MP4",
