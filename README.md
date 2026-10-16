@@ -24,14 +24,25 @@ This Actor analyzes a YouTube video using **multi-signal scoring** to find highl
 
 ## Input Parameters
 
+> [!IMPORTANT]
+> **Mutua esclusività tra `file_video` e `video_url`**:
+> I parametri `file_video` e `video_url` sono **mutuamente esclusivi**. L'Actor implementa un controllo di validazione ad-hoc che accerta la presenza di uno e un solo sorgente video:
+> - Se vengono forniti entrambi i parametri, o nessuno dei due, l'Actor interrompe immediatamente l'esecuzione sollevando un errore (`ValueError`).
+> - Se è valorizzato **`file_video`**: l'Actor scarica il video, ritaglia i momenti salienti, carica i file MP4 nel Key-Value Store e valorizza il campo **`download_url`** con l'URL per il download della clip, mentre **`Download Link`** (`download_link`) rimane nullo (`null`).
+> - Se è valorizzato **`video_url`**: l'Actor analizza il video YouTube e valorizza **`Download Link`** (`download_link`, `direct_timestamp_url`) con il link YouTube al timestamp esatto, mentre **`download_url`** rimane vuoto/nullo (`null`).
+>
+> **Nota sul testo generato da Gemini AI**: Tutti i campi testuali (`viral_hook`, `Caption`, `Virality_score_description`, `Title`) sono ripuliti automaticamente da qualsiasi icona, emoji o glifo grafico per garantire un testo pulito e professionale.
+
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `file_video` | String | No | — | Direct URL to a video file (.mp4, .mkv, .mov, etc.) to download and analyze locally. When specified, extracts audio, extracts transcript locally (embedded subtitles or faster-whisper), detects salient moments using Gemini AI, cuts the video into clips, and provides downloadable trimmed files. |
-| `video_url` | String | No* | — | Any valid YouTube video URL (`youtube.com/watch?v=...`, `youtu.be/...`). Used when `file_video` is omitted. (*Either `file_video` or `video_url` is required) |
+| `file_video` | String | No* | — | Direct URL to a video file (.mp4, .mkv, .mov, etc.) to download and analyze locally. **Mutually exclusive with `video_url`**. When provided, cuts the video into clips, saves them, and populates `download_url` (while `Download Link` is `null`). |
+| `video_url` | String | No* | — | Any valid YouTube video URL (`youtube.com/watch?v=...`, `youtu.be/...`). **Mutually exclusive with `file_video`**. When provided, analyzes YouTube transcripts and populates `Download Link` with the YouTube timestamp (while `download_url` is `null`). |
 | `max_clips` | Integer | No | `5` | Number of top highlight segments to return (1–50) |
 | `max_length` | Integer | No | `60` | Maximum duration in seconds of each selected highlight clip (10–300) |
 | `targetFormat` | String | No | `INSTAGRAM_REELS_VERTICAL_9_16_HIGHRES_1080P_MP4` | Target video format, aspect ratio, and resolution for social media clips (MP4). Supports High-Res (1080p) and Low-Res (720p) for TikTok, Instagram Reels/Stories/Feed, YouTube Shorts, or `ORIGINAL_RATIO_MP4`. |
 | `burn_subtitles` | Boolean | No | `true` | Burn dynamic animated subtitles (karaoke/Hormozi style with active word highlight) directly into video clips. Maximizes viewer retention on TikTok, Reels, and Shorts. |
+
+\* *Esattamente uno tra `file_video` e `video_url` deve essere fornito.*
 
 ### Example Input (Direct Video File with Format & Animated Subtitles)
 
@@ -66,34 +77,34 @@ Each detected highlight is pushed to the Apify dataset with these fields:
 | Field | Type | Description |
 |-------|------|-------------|
 | `rank` | Integer | Rank (1 = highest score) |
-| `Title` | String | Catchy title generated for the clip |
+| `Title` | String | Catchy title generated for the clip (clean text, no icons) |
 | `score` | Float | Composite engagement score (0–100) |
-| `viral_hook` | String | First 3-second attention-grabbing on-screen hook with emoji |
-| `Caption` | String | Engaging social media description with emojis, storytelling, and call to action |
+| `viral_hook` | String | Attention-grabbing hook for the first 3 seconds (clean text, no icons/emojis) |
+| `Caption` | String | Engaging social media description with narrative context and call to action (clean text, no icons/emojis) |
 | `Hashtag` | Array | 5–8 trending and niche-specific hashtags for social posting |
-| `Virality_score_description` | String | Explanation of virality potential, retention hooks, and audience triggers |
+| `Virality_score_description` | String | Explanation of virality potential and retention factors (clean text, no icons/emojis) |
 | `start_time` | String | Clip start in `HH:MM:SS` format |
 | `end_time` | String | Clip end in `HH:MM:SS` format |
 | `duration_seconds` | Number | Clip duration in seconds (20–60s) |
 | `target_format` | String | Selected social media format and resolution profile |
 | `detection_reasons` | Array | Trigger explanations (e.g., `["laughter_spike", "chat_velocity_320%"]`) |
 | `transcript` | String | Spoken text / dialogue transcribed from the highlight segment |
+| `download_url` | String | Direct download link for the cut video clip from Key-Value Store (**populated if `file_video` is used; null if `video_url` is used**) |
+| `Download Link` (`download_link`) | String | Link field: **YouTube timestamp link if `video_url` is used; null if `file_video` is used** |
 | `direct_timestamp_url` | String | Direct YouTube timestamp link (`https://youtu.be/...#t=<seconds>`) — returned when `video_url` is used |
-| `download_link` | String | Direct download link for the cut video clip from Key-Value Store — returned when `file_video` is used |
-| `download_url` | String | Alias for `download_link` (Key-Value Store MP4 URL) |
-| `clip_filename` | String | Cut video filename (e.g., `clip_1.mp4`) |
+| `clip_filename` | String | Cut video filename (e.g., `clip_1.mp4`) — returned when `file_video` is used |
 | `subtitles_url` | String | Direct download link for the animated ASS karaoke subtitle file |
-| `ffmpeg_command` | String | Ready-to-use command to extract and format this clip using FFmpeg (returned for both modes) |
+| `ffmpeg_command` | String | Ready-to-use command to extract and format this clip using FFmpeg |
 
-### Example Output Record
+### Example Output Record (when using `video_url`)
 
 ```json
 {
     "rank": 1,
     "Title": "Epic Game Winning Shot",
     "score": 92.4,
-    "viral_hook": "You won't believe this final play... 🤯",
-    "Caption": "Down to the final 3 seconds! Watch what happens next 🔥👀\n\nDrop your reaction in the comments! 👇",
+    "viral_hook": "You will not believe this final play...",
+    "Caption": "Down to the final 3 seconds! Watch what happens next.\n\nDrop your reaction in the comments!",
     "Hashtag": [
         "#shorts",
         "#reels",
@@ -114,12 +125,47 @@ Each detected highlight is pushed to the Apify dataset with these fields:
         "emote_lol"
     ],
     "transcript": "Oh my god, did you see that?! That was absolutely incredible! I can't believe that just happened!",
+    "download_url": null,
+    "download_link": "https://youtu.be/jfKfPfyJRdk?t=5025",
+    "Download Link": "https://youtu.be/jfKfPfyJRdk?t=5025",
     "direct_timestamp_url": "https://youtu.be/jfKfPfyJRdk?t=5025",
-    "download_link": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.mp4",
-    "download_url": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.mp4",
-    "subtitles_url": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.ass",
-    "clip_filename": "clip_1.mp4",
     "ffmpeg_command": "ffmpeg -ss 01:23:45 -to 01:24:30 -i \"$(yt-dlp -g -f 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' 'https://www.youtube.com/watch?v=jfKfPfyJRdk')\" -vf \"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:'trunc((in_w-1080)/4)*2':'trunc((in_h-1920)/4)*2',setsar=1,ass='clip_1.ass'\" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 22 -c:a aac -b:a 128k -movflags +faststart clip_1.mp4"
+}
+```
+
+### Example Output Record (when using `file_video`)
+
+```json
+{
+    "rank": 1,
+    "Title": "Audio Spike at 00:00:00",
+    "score": 85.0,
+    "viral_hook": "Watch this moment carefully...",
+    "Caption": "An incredible segment from the full video.\n\nWhat are your thoughts on this? Leave a comment below!",
+    "Hashtag": [
+        "#shorts",
+        "#reels",
+        "#tiktok",
+        "#viral",
+        "#trending"
+    ],
+    "Virality_score_description": "Strong audio volume spike capturing viewer retention within the first 3 seconds, leading to high watch time.",
+    "start_time": "00:00:00",
+    "end_time": "00:00:25",
+    "duration_seconds": 25.0,
+    "target_format": "INSTAGRAM_REELS_VERTICAL_9_16_LOWRES_720P_MP4",
+    "detection_reasons": [
+        "Audio Spike (high_energy_audio) at 00:00:00",
+        "high_energy_audio"
+    ],
+    "transcript": "Hello everyone and welcome back. In today's episode we will cover...",
+    "clip_filename": "clip_1.mp4",
+    "clip_size_mb": 4.21,
+    "download_url": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.mp4",
+    "download_link": null,
+    "Download Link": null,
+    "subtitles_url": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.ass",
+    "ffmpeg_command": "ffmpeg -ss 00:00:00 -to 00:00:25 -i \"https://example.com/videos/podcast.mp4\" -vf \"scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280:'trunc((in_w-720)/4)*2':'trunc((in_h-1280)/4)*2',setsar=1,ass='clip_1.ass'\" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 22 -c:a aac -b:a 128k -movflags +faststart clip_1.mp4"
 }
 ```
 
