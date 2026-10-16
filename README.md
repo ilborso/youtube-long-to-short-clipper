@@ -66,6 +66,48 @@ The `file_video` and `youtube_url` parameters are **mutually exclusive**:
 
 ---
 
+## Pre-uploading Local Videos to Apify Key-Value Store
+
+### Use Case
+If your video file is stored locally on your machine or private server rather than hosted on a public URL (such as YouTube, GitHub, or AWS S3), you can upload it directly to an Apify Key-Value Store before running the Actor.
+
+**Why use this approach?**
+- **Bypasses Input Size Limits**: Apify Actor input payloads are JSON documents limited to approximately 9 MB, making inline Base64 video encoding impractical. Uploading to a Key-Value Store supports large video files (hundreds of megabytes or gigabytes).
+- **Zero Base64 Overhead**: Avoids the 33% payload size inflation inherent to Base64 encoding.
+- **High-Speed Cloud Streaming**: The Actor downloads and processes the video directly within the Apify cloud infrastructure with high bandwidth and minimal latency.
+
+Once uploaded, pass the Key-Value Store record URL to the `file_video` parameter to trigger processing.
+
+### Upload via cURL
+
+Upload your local video file directly to an Apify Key-Value Store record using a binary `PUT` request:
+
+```bash
+curl -X PUT "https://api.apify.com/v2/key-value-stores/<STORE_ID_OR_NAME>/records/<RECORD_KEY>?token=<YOUR_APIFY_TOKEN>" \
+  -H "Content-Type: video/mp4" \
+  --data-binary "@my_local_video.mp4"
+```
+
+### Upload via Windows Powershell
+
+Upload your local video file directly to an Apify Key-Value Store record using Invoke-RestMethod
+
+```powershell
+$uri = "https://api.apify.com/v2/key-value-stores/<STORE_ID_OR_NAME>/records/<RECORD_KEY>?token=<YOUR_APIFY_TOKEN>"
+$filePath = (Resolve-Path ".\my_local_video.mp4").Path
+
+Invoke-RestMethod -Uri $uri -Method Put -ContentType "video/mp4" -InFile $filePath
+```
+
+Once uploaded, obtain the direct record URL:
+```text
+https://api.apify.com/v2/key-value-stores/<STORE_ID_OR_NAME>/records/<RECORD_KEY>
+```
+
+Pass this URL to the **`file_video`** input parameter when running the Actor.
+
+---
+
 ## Output Dataset Structure
 
 Processed results are saved to the default Apify dataset with the following structure. In both modes (`file_video` and `youtube_url`), every record provides complete, ready-to-publish social media data (`viral_hook`, `Caption`, `Hashtag`, `Virality_score_description`, and `transcript`):
