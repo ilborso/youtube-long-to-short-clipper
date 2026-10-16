@@ -70,6 +70,11 @@
                 "type": "string",
                 "description": "Filename of the trimmed clip",
                 "example": "clip_1.mp4"
+            },
+            "target_format": {
+                "type": "string",
+                "description": "Target social media video format and resolution profile",
+                "example": "INSTAGRAM_REELS_VERTICAL_9_16_HIGHRES_1080P_MP4"
             }
         }
     },
@@ -84,6 +89,7 @@
                     "start_time",
                     "end_time",
                     "duration_seconds",
+                    "target_format",
                     "detection_reasons",
                     "transcript",
                     "direct_timestamp_url",
@@ -117,6 +123,10 @@
                     "duration_seconds": {
                         "label": "Duration (s)",
                         "format": "number"
+                    },
+                    "target_format": {
+                        "label": "Format",
+                        "format": "text"
                     },
                     "detection_reasons": {
                         "label": "Triggers",

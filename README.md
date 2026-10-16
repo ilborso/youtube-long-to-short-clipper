@@ -30,14 +30,16 @@ This Actor analyzes a YouTube video using **multi-signal scoring** to find highl
 | `video_url` | String | No* | — | Any valid YouTube video URL (`youtube.com/watch?v=...`, `youtu.be/...`). Used when `file_video` is omitted. (*Either `file_video` or `video_url` is required) |
 | `max_clips` | Integer | No | `5` | Number of top highlight segments to return (1–50) |
 | `max_length` | Integer | No | `60` | Maximum duration in seconds of each selected highlight clip (10–300) |
+| `targetFormat` | String | No | `INSTAGRAM_REELS_VERTICAL_9_16_HIGHRES_1080P_MP4` | Target video format, aspect ratio, and resolution for social media clips (MP4). Supports High-Res (1080p) and Low-Res (720p) for TikTok, Instagram Reels/Stories/Feed, YouTube Shorts, or `ORIGINAL_RATIO_MP4`. |
 
-### Example Input (Direct Video File)
+### Example Input (Direct Video File with Format Selection)
 
 ```json
 {
     "file_video": "https://example.com/videos/podcast.mp4",
     "max_clips": 3,
-    "max_length": 60
+    "max_length": 60,
+    "targetFormat": "INSTAGRAM_REELS_VERTICAL_9_16_HIGHRES_1080P_MP4"
 }
 ```
 
@@ -47,7 +49,8 @@ This Actor analyzes a YouTube video using **multi-signal scoring** to find highl
 {
     "video_url": "https://www.youtube.com/watch?v=jfKfPfyJRdk",
     "max_clips": 5,
-    "max_length": 60
+    "max_length": 60,
+    "targetFormat": "TIKTOK_FEED_VERTICAL_9_16_HIGHRES_1080P_MP4"
 }
 ```
 
@@ -65,12 +68,13 @@ Each detected highlight is pushed to the Apify dataset with these fields:
 | `start_time` | String | Clip start in `HH:MM:SS` format |
 | `end_time` | String | Clip end in `HH:MM:SS` format |
 | `duration_seconds` | Number | Clip duration in seconds (20–60s) |
+| `target_format` | String | Selected social media format and resolution profile |
 | `detection_reasons` | Array | Trigger explanations (e.g., `["laughter_spike", "chat_velocity_320%"]`) |
 | `transcript` | String | Spoken text / dialogue transcribed from the highlight segment |
 | `direct_timestamp_url` | String | Direct YouTube or video timestamp link (`...#t=<seconds>`) |
 | `download_url` | String | Direct download link for the cut video clip from Key-Value Store (when using `file_video`) |
 | `clip_filename` | String | Cut video filename (e.g., `clip_1.mp4`) |
-| `ffmpeg_command` | String | Copy-pasteable command to extract this clip losslessly |
+| `ffmpeg_command` | String | Ready-to-use command to extract and format this clip using yt-dlp and ffmpeg |
 
 ### Example Output Record
 
@@ -82,6 +86,7 @@ Each detected highlight is pushed to the Apify dataset with these fields:
     "start_time": "01:23:45",
     "end_time": "01:24:30",
     "duration_seconds": 45.0,
+    "target_format": "INSTAGRAM_REELS_VERTICAL_9_16_HIGHRES_1080P_MP4",
     "detection_reasons": [
         "audio_volume_spike_+180%",
         "chat_velocity_320%",
@@ -90,7 +95,7 @@ Each detected highlight is pushed to the Apify dataset with these fields:
     ],
     "transcript": "Oh my god, did you see that?! That was absolutely incredible! I can't believe that just happened!",
     "direct_timestamp_url": "https://youtu.be/jfKfPfyJRdk?t=5025",
-    "ffmpeg_command": "ffmpeg -ss 01:23:45 -to 01:24:30 -i \"$(yt-dlp -g -f 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' 'https://www.youtube.com/watch?v=jfKfPfyJRdk')\" -c copy clip_1.mp4"
+    "ffmpeg_command": "ffmpeg -ss 01:23:45 -to 01:24:30 -i \"$(yt-dlp -g -f 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' 'https://www.youtube.com/watch?v=jfKfPfyJRdk')\" -vf \"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:'trunc((in_w-1080)/4)*2':'trunc((in_h-1920)/4)*2',setsar=1\" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 22 -c:a aac -b:a 128k -movflags +faststart clip_1.mp4"
 }
 ```
 

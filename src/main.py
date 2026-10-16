@@ -779,29 +779,137 @@ def detect_salient_moments_from_audio_events(
     return selected[:max_clips]
 
 
+# ===========================================================================
+# Target video format profiles for social media clipping
+# ===========================================================================
+
+TARGET_FORMAT_PROFILES: dict[str, dict[str, Any]] = {
+    # TikTok
+    "TIKTOK_FEED_VERTICAL_9_16_HIGHRES_1080P_MP4": {
+        "width": 1080, "height": 1920, "aspect": "9:16", "name": "TikTok Feed (1080x1920 FHD)"
+    },
+    "TIKTOK_FEED_VERTICAL_9_16_LOWRES_720P_MP4": {
+        "width": 720, "height": 1280, "aspect": "9:16", "name": "TikTok Feed (720x1280 HD)"
+    },
+    "TIKTOK_LANDSCAPE_16_9_HIGHRES_1080P_MP4": {
+        "width": 1920, "height": 1080, "aspect": "16:9", "name": "TikTok Landscape (1920x1080 FHD)"
+    },
+    "TIKTOK_LANDSCAPE_16_9_LOWRES_720P_MP4": {
+        "width": 1280, "height": 720, "aspect": "16:9", "name": "TikTok Landscape (1280x720 HD)"
+    },
+    "TIKTOK_SQUARE_1_1_HIGHRES_1080P_MP4": {
+        "width": 1080, "height": 1080, "aspect": "1:1", "name": "TikTok Square (1080x1080 FHD)"
+    },
+    "TIKTOK_SQUARE_1_1_LOWRES_720P_MP4": {
+        "width": 720, "height": 720, "aspect": "1:1", "name": "TikTok Square (720x720 HD)"
+    },
+    # Instagram
+    "INSTAGRAM_REELS_VERTICAL_9_16_HIGHRES_1080P_MP4": {
+        "width": 1080, "height": 1920, "aspect": "9:16", "name": "Instagram Reels (1080x1920 FHD)"
+    },
+    "INSTAGRAM_REELS_VERTICAL_9_16_LOWRES_720P_MP4": {
+        "width": 720, "height": 1280, "aspect": "9:16", "name": "Instagram Reels (720x1280 HD)"
+    },
+    "INSTAGRAM_STORIES_VERTICAL_9_16_HIGHRES_1080P_MP4": {
+        "width": 1080, "height": 1920, "aspect": "9:16", "name": "Instagram Stories (1080x1920 FHD)"
+    },
+    "INSTAGRAM_STORIES_VERTICAL_9_16_LOWRES_720P_MP4": {
+        "width": 720, "height": 1280, "aspect": "9:16", "name": "Instagram Stories (720x1280 HD)"
+    },
+    "INSTAGRAM_FEED_PORTRAIT_4_5_HIGHRES_1080P_MP4": {
+        "width": 1080, "height": 1350, "aspect": "4:5", "name": "Instagram Feed Portrait (1080x1350 FHD)"
+    },
+    "INSTAGRAM_FEED_PORTRAIT_4_5_LOWRES_720P_MP4": {
+        "width": 720, "height": 900, "aspect": "4:5", "name": "Instagram Feed Portrait (720x900 HD)"
+    },
+    "INSTAGRAM_FEED_SQUARE_1_1_HIGHRES_1080P_MP4": {
+        "width": 1080, "height": 1080, "aspect": "1:1", "name": "Instagram Feed Square (1080x1080 FHD)"
+    },
+    "INSTAGRAM_FEED_SQUARE_1_1_LOWRES_720P_MP4": {
+        "width": 720, "height": 720, "aspect": "1:1", "name": "Instagram Feed Square (720x720 HD)"
+    },
+    "INSTAGRAM_FEED_LANDSCAPE_16_9_HIGHRES_1080P_MP4": {
+        "width": 1920, "height": 1080, "aspect": "16:9", "name": "Instagram Feed Landscape (1920x1080 FHD)"
+    },
+    "INSTAGRAM_FEED_LANDSCAPE_16_9_LOWRES_720P_MP4": {
+        "width": 1280, "height": 720, "aspect": "16:9", "name": "Instagram Feed Landscape (1280x720 HD)"
+    },
+    # YouTube Shorts
+    "YOUTUBE_SHORTS_VERTICAL_9_16_HIGHRES_1080P_MP4": {
+        "width": 1080, "height": 1920, "aspect": "9:16", "name": "YouTube Shorts (1080x1920 FHD)"
+    },
+    "YOUTUBE_SHORTS_VERTICAL_9_16_LOWRES_720P_MP4": {
+        "width": 720, "height": 1280, "aspect": "9:16", "name": "YouTube Shorts (720x1280 HD)"
+    },
+    # Original Aspect Ratio (no crop/scale)
+    "ORIGINAL_RATIO_MP4": {
+        "width": None, "height": None, "aspect": "original", "name": "Original Aspect Ratio"
+    },
+}
+
+DEFAULT_TARGET_FORMAT = "INSTAGRAM_REELS_VERTICAL_9_16_HIGHRES_1080P_MP4"
+
+
+def get_video_filter_for_format(target_format: str | None) -> str | None:
+    """
+    Return the ffmpeg video filter (-vf) to scale and center-crop to target format.
+    Calculates scale keeping aspect ratio, performs center crop with even offsets
+    for yuv420p chromatic subsampling, and forces square sample aspect ratio (SAR=1).
+    """
+    if not target_format:
+        return None
+    profile = TARGET_FORMAT_PROFILES.get(target_format)
+    if not profile or not profile.get("width") or not profile.get("height"):
+        return None
+    w = profile["width"]
+    h = profile["height"]
+    return (
+        f"scale={w}:{h}:force_original_aspect_ratio=increase,"
+        f"crop={w}:{h}:'trunc((in_w-{w})/4)*2':'trunc((in_h-{h})/4)*2',"
+        f"setsar=1"
+    )
+
+
 def cut_local_video_clip(
-    video_path: str, start_time: str, end_time: str, output_path: str
+    video_path: str,
+    start_time: str,
+    end_time: str,
+    output_path: str,
+    target_format: str | None = None,
 ) -> str:
     """
-    Accurately cut a video segment using ffmpeg.
-    Re-encodes with fast settings to ensure clean cuts at keyframes and broad playback compatibility.
+    Accurately cut a video segment using ffmpeg and re-encode to the chosen social media target format.
+    Ensures clean cuts at keyframes, proper aspect ratio / resolution cropping, yuv420p color format,
+    and faststart flags for instant web/social playback.
     """
+    vf = get_video_filter_for_format(target_format)
+
     cmd = [
         "ffmpeg", "-y",
         "-ss", str(start_time),
         "-to", str(end_time),
         "-i", video_path,
+    ]
+    if vf:
+        cmd.extend(["-vf", vf])
+
+    cmd.extend([
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-crf", "22",
+        "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-b:a", "128k",
+        "-movflags", "+faststart",
         "-avoid_negative_ts", "make_zero",
         output_path,
-    ]
+    ])
+
+    profile_name = TARGET_FORMAT_PROFILES.get(target_format or "", {}).get("name", target_format or "ORIGINAL")
+    Actor.log.info(f"[Main] Running ffmpeg cut (format={profile_name}, vf={bool(vf)})...")
     res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if res.returncode != 0:
-        Actor.log.warning(f"[Main] ffmpeg libx264 cut failed ({res.stderr[-200:]}), falling back to copy...")
+        Actor.log.warning(f"[Main] ffmpeg libx264 cut with format failed ({res.stderr[-200:]}), falling back to direct copy...")
         cmd_copy = [
             "ffmpeg", "-y",
             "-ss", str(start_time),
@@ -877,6 +985,19 @@ async def main() -> None:
         max_clips = max(1, min(max_clips, 50))
         max_length = int(actor_input.get("max_length", 60))
         max_length = max(10, min(max_length, 600))
+        target_format = (
+            actor_input.get("targetFormat")
+            or actor_input.get("target_format")
+            or DEFAULT_TARGET_FORMAT
+        ).strip()
+        if target_format not in TARGET_FORMAT_PROFILES:
+            Actor.log.warning(
+                f"[Main] Unknown targetFormat '{target_format}', defaulting to {DEFAULT_TARGET_FORMAT}"
+            )
+            target_format = DEFAULT_TARGET_FORMAT
+
+        format_name = TARGET_FORMAT_PROFILES[target_format]["name"]
+        Actor.log.info(f"[Main] Target video format: {target_format} ({format_name})")
 
         # Check for Gemini API Key in environment
         if os.environ.get("GEMINI_API_KEY", "").strip():
@@ -1129,18 +1250,21 @@ async def main() -> None:
                     "start_time": start_hhmmss,
                     "end_time": end_hhmmss,
                     "duration_seconds": duration,
+                    "target_format": target_format,
                     "detection_reasons": detection_reasons,
                 }
+
+                vf = get_video_filter_for_format(target_format)
 
                 if is_local_file and local_video_path and work_dir:
                     # Cut clip from local video using ffmpeg
                     clip_filename = f"clip_{rank}.mp4"
                     clip_path = os.path.join(work_dir, clip_filename)
                     Actor.log.info(
-                        f"[Main] Cutting clip #{rank}: {start_hhmmss} → {end_hhmmss} ({duration}s)..."
+                        f"[Main] Cutting clip #{rank}: {start_hhmmss} → {end_hhmmss} ({duration}s) | format={target_format}..."
                     )
                     await asyncio.to_thread(
-                        cut_local_video_clip, local_video_path, start_hhmmss, end_hhmmss, clip_path
+                        cut_local_video_clip, local_video_path, start_hhmmss, end_hhmmss, clip_path, target_format
                     )
 
                     # Clip title from salient moment headline, transcript extracted locally from video subtitles
@@ -1163,21 +1287,37 @@ async def main() -> None:
                     item["clip_size_mb"] = clip_size_mb
                     item["download_url"] = download_url
                     item["direct_timestamp_url"] = f"{file_video}#t={int(start_sec)}"
-                    item["ffmpeg_command"] = (
-                        f'ffmpeg -ss {start_hhmmss} -to {end_hhmmss} -i "{file_video}" -c copy {clip_filename}'
-                    )
+                    if vf:
+                        item["ffmpeg_command"] = (
+                            f'ffmpeg -ss {start_hhmmss} -to {end_hhmmss} -i "{file_video}" '
+                            f'-vf "{vf}" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 22 '
+                            f'-c:a aac -b:a 128k -movflags +faststart {clip_filename}'
+                        )
+                    else:
+                        item["ffmpeg_command"] = (
+                            f'ffmpeg -ss {start_hhmmss} -to {end_hhmmss} -i "{file_video}" -c copy {clip_filename}'
+                        )
                 else:
                     clip_title = headline or f"Highlight #{rank}"
                     item["Title"] = clip_title
                     item["title"] = clip_title
                     item["transcript"] = clip_transcript
                     timestamp_url = f"https://youtu.be/{video_id}?t={int(start_sec)}"
-                    ffmpeg_cmd = (
-                        f'ffmpeg -ss {start_hhmmss} -to {end_hhmmss} '
-                        f'-i "$(yt-dlp -g -f \'bestvideo[ext=mp4]+bestaudio[ext=m4a]'
-                        f'/best[ext=mp4]/best\' \'{canonical_url}\')" '
-                        f'-c copy clip_{rank}.mp4'
-                    )
+                    if vf:
+                        ffmpeg_cmd = (
+                            f'ffmpeg -ss {start_hhmmss} -to {end_hhmmss} '
+                            f'-i "$(yt-dlp -g -f \'bestvideo[ext=mp4]+bestaudio[ext=m4a]'
+                            f'/best[ext=mp4]/best\' \'{canonical_url}\')" '
+                            f'-vf "{vf}" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 22 '
+                            f'-c:a aac -b:a 128k -movflags +faststart clip_{rank}.mp4'
+                        )
+                    else:
+                        ffmpeg_cmd = (
+                            f'ffmpeg -ss {start_hhmmss} -to {end_hhmmss} '
+                            f'-i "$(yt-dlp -g -f \'bestvideo[ext=mp4]+bestaudio[ext=m4a]'
+                            f'/best[ext=mp4]/best\' \'{canonical_url}\')" '
+                            f'-c copy clip_{rank}.mp4'
+                        )
                     item["direct_timestamp_url"] = timestamp_url
                     item["ffmpeg_command"] = ffmpeg_cmd
 
