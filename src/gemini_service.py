@@ -97,6 +97,30 @@ def _get_client():
         return None, None
 
 
+def clean_no_icons(text: str) -> str:
+    """Remove emojis, pictographs, dingbats, and icons from text."""
+    if not text:
+        return ""
+    import unicodedata
+    import re
+
+    def is_icon(c: str) -> bool:
+        cp = ord(c)
+        if cp >= 0x1F000:
+            return True
+        if (0x2300 <= cp <= 0x23FF) or (0x2600 <= cp <= 0x27BF) or (0x2B50 <= cp <= 0x2B55):
+            return True
+        if c in ("\u200D", "\uFE0E", "\uFE0F", "\u20E3"):
+            return True
+        if unicodedata.category(c) in ("So", "Sk"):
+            return True
+        return False
+
+    filtered = "".join(c for c in text if not is_icon(c))
+    lines = [re.sub(r"[ \t]+", " ", l).strip() for l in filtered.split("\n")]
+    return "\n".join(lines).strip()
+
+
 # ---------------------------------------------------------------------------
 # Prompt templates
 # ---------------------------------------------------------------------------
@@ -138,6 +162,7 @@ Criteria for Salient Moments:
 - Clearly identify the core salient interval: `core_start_seconds` and `core_end_seconds`.
 - The core moment itself must be roughly 10 to {max_core_length} seconds long so context buffers can be attached without exceeding {max_length}s.
 - Make sure none of the selected moments overlap each other.
+- IMPORTANT: Absolutely NO emojis, emoticons, pictographs, or icons in any field. Use pure, clean text only.
 
 Timestamped Transcript:
 {transcript_content}
@@ -149,13 +174,13 @@ Respond in this EXACT JSON format (no markdown code fences, pure JSON only):
       "core_start_seconds": <float>,
       "core_end_seconds": <float>,
       "score": <float between 70.0 and 99.0>,
-      "headline": "<punchy hook/title>",
+      "headline": "<punchy hook/title, NO emojis or icons>",
       "detection_reasons": ["<reason1>", "<reason2>"],
       "summary": "<brief summary>",
-      "viral_hook": "<punchy 3-5 word on-screen hook with emoji for first 3 seconds>",
-      "caption": "<engaging social media caption with emojis and call to action>",
+      "viral_hook": "<punchy 3-5 word on-screen hook without any emojis or icons>",
+      "caption": "<engaging social media caption with narrative context and call to action without any emojis or icons>",
       "hashtags": ["#shorts", "#reels", "#viral", "<relevant_tag1>", "<relevant_tag2>"],
-      "virality_score_description": "<explanation of viral potential, retention hook, and emotional trigger>"
+      "virality_score_description": "<explanation of viral potential, retention hook, and emotional trigger without any emojis or icons>"
     }}
   ]
 }}
@@ -396,13 +421,13 @@ async def detect_salient_moments_from_transcript(
                 "core_start_seconds": start,
                 "core_end_seconds": end,
                 "score": float(h.get("score", 85.0)),
-                "headline": str(h.get("headline", "")),
+                "headline": clean_no_icons(str(h.get("headline", ""))),
                 "detection_reasons": list(h.get("detection_reasons", ["salient_moment"])),
-                "summary": str(h.get("summary", "")),
-                "viral_hook": str(h.get("viral_hook", "")),
-                "caption": str(h.get("caption", "")),
+                "summary": clean_no_icons(str(h.get("summary", ""))),
+                "viral_hook": clean_no_icons(str(h.get("viral_hook", ""))),
+                "caption": clean_no_icons(str(h.get("caption", ""))),
                 "hashtags": list(h.get("hashtags", [])),
-                "virality_score_description": str(h.get("virality_score_description", "")),
+                "virality_score_description": clean_no_icons(str(h.get("virality_score_description", ""))),
             })
 
         valid_highlights.sort(key=lambda x: x["score"], reverse=True)
@@ -499,25 +524,27 @@ def generate_fallback_social_copy_kit(
     score: float = 85.0,
     detection_reasons: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Generate high-quality algorithmic fallback for the Social Media Copy Kit."""
+    """Generate high-quality algorithmic fallback for the Social Media Copy Kit without icons/emojis."""
     import re
     reasons_str = ", ".join(detection_reasons or ["high engagement spike"])
     clean_words = [w.capitalize() for w in re.sub(r"[^\w\s]", "", title).split() if len(w) > 2]
     topic_tag = f"#{''.join(clean_words[:2])}" if clean_words else "#Trending"
 
-    clean_hook = title.strip()
+    clean_hook = clean_no_icons(title.strip())
     if clean_hook.lower().startswith("highlight at") or not clean_hook:
-        clean_hook = "Wait for this moment... 🤯"
-    elif not any(c in clean_hook for c in ["!", "?", "🔥", "🤯", "👀"]):
-        clean_hook = f"{clean_hook} 😱"
+        clean_hook = "Wait for this moment..."
+    elif clean_hook.endswith("..."):
+        clean_hook = clean_hook
+    else:
+        clean_hook = f"{clean_hook}!"
 
-    quote_snippet = transcript.strip()[:140] if transcript else "Watch this clip to the end!"
+    quote_snippet = clean_no_icons(transcript.strip()[:140]) if transcript else "Watch this clip to the end."
     return {
         "viral_hook": clean_hook[:80],
         "Caption": (
-            f"You won't believe what happened! 👀🔥\n\n"
+            f"You will not believe what happened.\n\n"
             f"\"{quote_snippet}...\"\n\n"
-            f"What are your thoughts on this? Drop a comment below! 👇"
+            f"What are your thoughts on this? Drop a comment below."
         ),
         "Hashtag": ["#shorts", "#reels", "#tiktok", "#viral", "#fyp", topic_tag],
         "Virality_score_description": (
@@ -535,10 +562,10 @@ async def generate_social_copy_kit(
 ) -> dict[str, Any]:
     """
     Use Gemini AI to generate a complete Social Media Copy Kit for a clip:
-    - viral_hook (opening 3-second hook)
-    - Caption (social media description with emojis & CTA)
+    - viral_hook (opening 3-second hook, without any icons/emojis)
+    - Caption (social media description, without any icons/emojis)
     - Hashtag (list of 5-8 relevant and trending hashtags)
-    - Virality_score_description (rationale for the virality score)
+    - Virality_score_description (rationale for the virality score, without any icons/emojis)
     """
     fallback = generate_fallback_social_copy_kit(title, transcript, score, detection_reasons)
     client, config = _get_client()
@@ -553,12 +580,14 @@ Given this video highlight clip:
 - Triggers: {', '.join(detection_reasons or ['salient_moment'])}
 
 Generate a complete Social Media Copy Kit for this clip.
+CRITICAL INSTRUCTION: Absolutely DO NOT include any emojis, emoticons, pictographs, or icons anywhere in the output (no symbols in viral_hook, Caption, or Virality_score_description). Use clean, professional text only.
+
 Respond in this EXACT JSON format (no markdown code fences, pure JSON only):
 {{
-  "viral_hook": "<punchy 3-5 word on-screen hook with emoji for the first 3 seconds>",
-  "Caption": "<engaging social media description with emojis, narrative context, and call to action>",
+  "viral_hook": "<punchy 3-5 word on-screen hook without any emojis or icons>",
+  "Caption": "<engaging social media description with narrative context and call to action without any emojis or icons>",
   "Hashtag": ["#shorts", "#reels", "#tiktok", "<3-5 niche tags>"],
-  "Virality_score_description": "<concise explanation of viral retention factors and audience emotional triggers>"
+  "Virality_score_description": "<concise explanation of viral retention factors and audience emotional triggers without any emojis or icons>"
 }}"""
 
     try:
@@ -593,10 +622,10 @@ Respond in this EXACT JSON format (no markdown code fences, pure JSON only):
                         pass
 
             if isinstance(data, dict):
-                v_hook = str(data.get("viral_hook", "")).strip() or fallback["viral_hook"]
-                v_caption = str(data.get("Caption", data.get("caption", ""))).strip() or fallback["Caption"]
+                v_hook = clean_no_icons(str(data.get("viral_hook", "")).strip() or fallback["viral_hook"])
+                v_caption = clean_no_icons(str(data.get("Caption", data.get("caption", ""))).strip() or fallback["Caption"])
                 v_tags = list(data.get("Hashtag", data.get("hashtags", []))) or fallback["Hashtag"]
-                v_desc = str(data.get("Virality_score_description", data.get("virality_score_description", ""))).strip() or fallback["Virality_score_description"]
+                v_desc = clean_no_icons(str(data.get("Virality_score_description", data.get("virality_score_description", ""))).strip() or fallback["Virality_score_description"])
                 Actor.log.info(
                     f"[GeminiService] Generated Social Media Copy Kit: Hook='{v_hook}' | Hashtags={v_tags}"
                 )

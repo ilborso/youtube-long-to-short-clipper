@@ -28,6 +28,7 @@ from .gemini_service import (
     transcribe_and_title_clip,
     generate_social_copy_kit,
     generate_fallback_social_copy_kit,
+    clean_no_icons,
 )
 from .subtitle_generator import (
     get_words_for_clip,
@@ -1057,8 +1058,25 @@ async def main() -> None:
         Actor.log.info(f"[Main]   • Burn Animated Subtitles: {burn_subtitles} (Karaoke ASS style)")
         Actor.log.info(f"[Main]   • Gemini AI Status: {gemini_status}")
 
+        # Ad-hoc mutual exclusivity validation
+        if file_video and video_url:
+            Actor.log.info(
+                "[Main] Validation error: 'file_video' and 'video_url' are mutually exclusive. Both were provided."
+            )
+            raise ValueError(
+                'Parameters "file_video" and "video_url" are mutually exclusive. '
+                'Please provide either "file_video" for a direct video file OR "video_url" for a YouTube video, but not both.'
+            )
+
         if not file_video and not video_url:
-            raise ValueError('Either "file_video" (direct video URL) or "video_url" (YouTube URL) must be provided in the input.')
+            Actor.log.info(
+                "[Main] Validation error: Neither 'file_video' nor 'video_url' was provided in the input."
+            )
+            raise ValueError(
+                'Either "file_video" (direct video URL) or "video_url" (YouTube URL) must be provided in the input.'
+            )
+
+        Actor.log.info("[Main] Mutual exclusivity validated: exactly one video input source provided.")
 
         # Ensure internal Apify SDK calls and Google Gemini bypass any global proxy
         os.environ.pop("HTTP_PROXY", None)
@@ -1352,12 +1370,12 @@ async def main() -> None:
                     detection_reasons=detection_reasons,
                 )
 
-                viral_hook = m.get("viral_hook") or copy_kit.get("viral_hook", "")
-                caption = m.get("caption") or copy_kit.get("Caption", "")
+                viral_hook = clean_no_icons(m.get("viral_hook") or copy_kit.get("viral_hook", ""))
+                caption = clean_no_icons(m.get("caption") or copy_kit.get("Caption", ""))
                 hashtags = m.get("hashtags") or copy_kit.get("Hashtag", [])
-                virality_score_desc = m.get("virality_score_description") or copy_kit.get("Virality_score_description", "")
+                virality_score_desc = clean_no_icons(m.get("virality_score_description") or copy_kit.get("Virality_score_description", ""))
 
-                Actor.log.info(f"[Main]   2. Social Media Copy Kit:")
+                Actor.log.info(f"[Main]   2. Social Media Copy Kit (No Emojis/Icons):")
                 Actor.log.info(f"[Main]      • Viral Hook: \"{viral_hook}\"")
                 Actor.log.info(f"[Main]      • Caption: \"{caption[:80]}...\"")
                 Actor.log.info(f"[Main]      • Hashtags: {' '.join(hashtags)}")
@@ -1430,13 +1448,15 @@ async def main() -> None:
                         item["subtitles_url"] = sub_url
                         Actor.log.info(f"[Main]      • Subtitle ASS file uploaded: {sub_url}")
 
-                    item["Title"] = clip_title
-                    item["title"] = clip_title
+                    clean_title = clean_no_icons(clip_title)
+                    item["Title"] = clean_title
+                    item["title"] = clean_title
                     item["transcript"] = clip_transcript
                     item["clip_filename"] = clip_filename
                     item["clip_size_mb"] = clip_size_mb
-                    item["download_link"] = download_url
                     item["download_url"] = download_url
+                    item["download_link"] = None
+                    item["Download Link"] = None
                     sub_filter_str = f",ass='clip_{rank}.ass'" if (burn_subtitles and ass_path) else ""
                     if vf:
                         item["ffmpeg_command"] = (
@@ -1449,10 +1469,15 @@ async def main() -> None:
                             f'ffmpeg -ss {start_hhmmss} -to {end_hhmmss} -i "{file_video}" -c copy {clip_filename}'
                         )
                 else:
-                    item["Title"] = clip_title
-                    item["title"] = clip_title
+                    clean_title = clean_no_icons(clip_title)
+                    item["Title"] = clean_title
+                    item["title"] = clean_title
                     item["transcript"] = clip_transcript
                     timestamp_url = f"https://youtu.be/{video_id}?t={int(start_sec)}"
+                    item["download_url"] = None
+                    item["download_link"] = timestamp_url
+                    item["Download Link"] = timestamp_url
+                    item["direct_timestamp_url"] = timestamp_url
                     sub_filter_str = f",ass='clip_{rank}.ass'" if burn_subtitles else ""
                     if vf:
                         ffmpeg_cmd = (
@@ -1469,9 +1494,8 @@ async def main() -> None:
                             f'/best[ext=mp4]/best\' \'{canonical_url}\')" '
                             f'-c copy clip_{rank}.mp4'
                         )
-                    item["direct_timestamp_url"] = timestamp_url
                     item["ffmpeg_command"] = ffmpeg_cmd
-                    Actor.log.info(f"[Main]   3. Clip Reference: Timestamp link: {timestamp_url}")
+                    Actor.log.info(f"[Main]   3. Clip Reference: YouTube link: {timestamp_url}")
 
                 results.append(item)
 
