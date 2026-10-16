@@ -1,4 +1,4 @@
-# Simple Highlight Clipper – Apify Actor
+# Simple AI Video Clipper – 
 
 Automatically detect the most engaging moments in videos (direct video files or long YouTube videos such as podcasts, interviews, and streams) and generate ready-to-use clips optimized for YouTube Shorts, Instagram Reels, and TikTok.
 
