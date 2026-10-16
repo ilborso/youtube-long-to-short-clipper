@@ -1012,9 +1012,14 @@ async def main() -> None:
     loop.set_default_executor(ThreadPoolExecutor(max_workers=8))
 
     async with Actor:
-        # ── 1. Parse & validate input ─────────────────────────────────────
+        # =====================================================================
+        # PHASE 1: INITIALIZATION & CONFIGURATION
+        # =====================================================================
         actor_input = await Actor.get_input() or {}
-        Actor.log.info(f"[Main] Received input: {json.dumps(actor_input, default=str)}")
+        Actor.log.info("=" * 72)
+        Actor.log.info("[Main] === PHASE 1: INITIALIZATION & CONFIGURATION ===")
+        Actor.log.info("=" * 72)
+        Actor.log.info(f"[Main] Raw input received: {json.dumps(actor_input, default=str)}")
 
         file_video = actor_input.get("file_video", "").strip()
         video_url = actor_input.get("video_url", "").strip()
@@ -1028,23 +1033,29 @@ async def main() -> None:
             or DEFAULT_TARGET_FORMAT
         ).strip()
         if target_format not in TARGET_FORMAT_PROFILES:
-            Actor.log.warning(
-                f"[Main] Unknown targetFormat '{target_format}', defaulting to {DEFAULT_TARGET_FORMAT}"
+            Actor.log.info(
+                f"[Main] Note: Unknown targetFormat '{target_format}', defaulting to '{DEFAULT_TARGET_FORMAT}'."
             )
             target_format = DEFAULT_TARGET_FORMAT
 
-        format_name = TARGET_FORMAT_PROFILES[target_format]["name"]
+        format_profile = TARGET_FORMAT_PROFILES[target_format]
+        format_name = format_profile["name"]
         burn_subtitles = bool(actor_input.get("burn_subtitles", True))
-        Actor.log.info(f"[Main] Target video format: {target_format} ({format_name}) | Burn subtitles: {burn_subtitles}")
 
-        # Check for Gemini API Key in environment
-        if os.environ.get("GEMINI_API_KEY", "").strip():
-            Actor.log.info("[Main] GEMINI_API_KEY detected in environment.")
-        else:
-            Actor.log.warning(
-                "[Main] ⚠️ GEMINI_API_KEY environment variable is not set. "
-                "Identifying salient moments will use fallback methods."
-            )
+        has_gemini = bool(os.environ.get("GEMINI_API_KEY", "").strip())
+        gemini_status = "Available (Active)" if has_gemini else "Not set (Using algorithmic/audio fallbacks)"
+
+        Actor.log.info(f"[Main] Configured Pipeline Settings:")
+        Actor.log.info(f"[Main]   • Video Input Mode: {'Direct Video File URL' if file_video else 'YouTube Video URL'}")
+        Actor.log.info(f"[Main]   • Input Target: {file_video or video_url}")
+        Actor.log.info(f"[Main]   • Max Highlights (Clips): {max_clips}")
+        Actor.log.info(f"[Main]   • Max Clip Length: {max_length} seconds")
+        Actor.log.info(
+            f"[Main]   • Target Video Format: {target_format} "
+            f"({format_name} - {format_profile.get('width', 'auto')}x{format_profile.get('height', 'auto')}, {format_profile.get('aspect', 'original')})"
+        )
+        Actor.log.info(f"[Main]   • Burn Animated Subtitles: {burn_subtitles} (Karaoke ASS style)")
+        Actor.log.info(f"[Main]   • Gemini AI Status: {gemini_status}")
 
         if not file_video and not video_url:
             raise ValueError('Either "file_video" (direct video URL) or "video_url" (YouTube URL) must be provided in the input.')
@@ -1069,53 +1080,73 @@ async def main() -> None:
             # BRANCH A: Direct Video File URL (`file_video`)
             # ─────────────────────────────────────────────────────────────
             if is_local_file:
-                Actor.log.info(
-                    f"[Main] Mode: Direct video file download ({file_video[:80]}...) | "
-                    f"max_clips={max_clips}, max_length={max_length}s"
-                )
+                Actor.log.info("=" * 72)
+                Actor.log.info("[Main] === PHASE 2: VIDEO DOWNLOAD & METADATA INGESTION ===")
+                Actor.log.info("=" * 72)
+                Actor.log.info(f"[Main] Starting download of remote video: {file_video}")
                 await Actor.set_status_message("Downloading video file to local disk...")
                 work_dir = tempfile.mkdtemp(prefix="video_work_")
 
-                # Step 1: Download video file locally
                 local_video_path = await asyncio.to_thread(download_video_file, file_video, work_dir)
+                Actor.log.info(f"[Main] Download complete. Inspecting video metadata for: {local_video_path}")
                 info = get_local_video_info(local_video_path)
                 video_duration = float(info.get("duration", 0))
                 video_title = info.get("title", "Video File")
                 if video_duration <= 0:
-                    Actor.log.warning("[Main] Could not determine video duration, defaulting to 3600s")
+                    Actor.log.info("[Main] Note: Could not determine video duration from headers, defaulting to 3600s.")
                     video_duration = 3600.0
 
-                Actor.log.info(
-                    f"[Main] Video: '{video_title}' | Duration: {seconds_to_hhmmss(video_duration)} "
-                    f"| File size: {round(info.get('size', 0) / (1024 * 1024), 2)} MB"
-                )
+                video_size_mb = round(info.get("size", 0) / (1024 * 1024), 2)
+                Actor.log.info(f"[Main] Video Metadata Ingested:")
+                Actor.log.info(f"[Main]   • Title: '{video_title}'")
+                Actor.log.info(f"[Main]   • Duration: {seconds_to_hhmmss(video_duration)} ({video_duration:.1f}s)")
+                Actor.log.info(f"[Main]   • File Size: {video_size_mb} MB")
 
                 # Step 2: Extract audio stream from local video
+                Actor.log.info("=" * 72)
+                Actor.log.info("[Main] === PHASE 3: AUDIO EXTRACTION ===")
+                Actor.log.info("=" * 72)
                 await Actor.set_status_message("Extracting audio stream from video...")
                 wav_path = os.path.join(work_dir, "extracted_audio.wav")
+                Actor.log.info(f"[Main] Extracting mono 16-bit PCM WAV (sample rate: {SAMPLE_RATE} Hz) to: {wav_path}")
                 await asyncio.to_thread(extract_audio_from_local_video, local_video_path, wav_path)
+                wav_size_mb = round(os.path.getsize(wav_path) / (1024 * 1024), 2) if os.path.exists(wav_path) else 0.0
+                Actor.log.info(f"[Main] Audio extracted successfully: {wav_size_mb} MB WAV stream.")
 
-                # Check for embedded subtitles if present
+                # Step 3: Transcription & Subtitle processing
+                Actor.log.info("=" * 72)
+                Actor.log.info("[Main] === PHASE 4: TRANSCRIPTION & SUBTITLE EXTRACTION ===")
+                Actor.log.info("=" * 72)
                 vtt_path = os.path.join(work_dir, "embedded_subs.vtt")
+                Actor.log.info("[Main] Checking video container for embedded subtitle streams...")
                 subtitles_dict, subtitle_segments = extract_subtitles_from_local_video(
                     local_video_path, vtt_path
                 )
                 if subtitle_segments:
-                    Actor.log.info(f"[Main] Extracted {len(subtitle_segments)} embedded subtitle segments.")
+                    Actor.log.info(f"[Main] Found and extracted {len(subtitle_segments)} embedded subtitle segments.")
                 else:
-                    # Extract transcript locally using faster-whisper without Gemini
-                    await Actor.set_status_message("Transcribing audio locally without Gemini...")
+                    Actor.log.info("[Main] No embedded subtitles found. Proceeding with local speech recognition (faster-whisper)...")
+                    await Actor.set_status_message("Transcribing audio locally with faster-whisper...")
                     subtitles_dict, subtitle_segments, all_words = await asyncio.to_thread(
                         transcribe_audio_locally, wav_path
                     )
-
-                # Step 3: Identify salient moments using Gemini from transcript
-                if subtitle_segments:
-                    await Actor.set_status_message("Identifying salient moments using Gemini...")
                     Actor.log.info(
-                        f"[Main] Identifying salient moments from {len(subtitle_segments)} local transcript segments using Gemini..."
+                        f"[Main] Speech-to-text finished: {len(subtitle_segments)} segments, "
+                        f"{len(all_words)} word-level timestamps extracted."
                     )
+
+                # Step 4: Salient Moments Detection
+                Actor.log.info("=" * 72)
+                Actor.log.info("[Main] === PHASE 5: SALIENT MOMENT DETECTION ===")
+                Actor.log.info("=" * 72)
+                moments: list[dict[str, Any]] = []
+                if subtitle_segments and has_gemini:
+                    await Actor.set_status_message("Identifying salient moments using Gemini AI...")
                     formatted_transcript = format_transcript_for_prompt(subtitle_segments)
+                    Actor.log.info(
+                        f"[Main] Sending transcript ({len(subtitle_segments)} segments, {len(formatted_transcript)} chars) "
+                        f"to Gemini AI to detect top {max_clips} highlights..."
+                    )
                     moments = await detect_salient_moments_from_transcript(
                         video_title=video_title,
                         video_duration=video_duration,
@@ -1123,34 +1154,40 @@ async def main() -> None:
                         max_clips=max_clips,
                         max_length=max_length,
                     )
+                    Actor.log.info(f"[Main] Gemini AI returned {len(moments)} candidate highlight moments.")
 
                 # Fallback to audio event spikes if Gemini is not configured or returned no moments
                 if not moments:
-                    Actor.log.info("[Main] Analyzing audio events for salient moments fallback...")
+                    Actor.log.info("[Main] Running audio energy analysis fallback (volume spikes, laughter, excitement)...")
                     await Actor.set_status_message("Analyzing audio for energy spikes and salient moments...")
                     audio_events = await asyncio.to_thread(analyze_audio, wav_path)
+                    Actor.log.info(f"[Main] Audio analysis detected {len(audio_events)} high-energy events.")
                     moments = detect_salient_moments_from_audio_events(
                         audio_events, max_clips, video_duration, max_length=max_length
                     )
+                    Actor.log.info(f"[Main] Audio energy analysis produced {len(moments)} candidate moments.")
                     if not moments and subtitle_segments:
+                        Actor.log.info("[Main] Running heuristic transcript keyword analysis fallback...")
                         moments = detect_salient_moments_heuristically(
                             subtitle_segments, max_clips, video_duration, max_length=max_length
                         )
+                        Actor.log.info(f"[Main] Heuristic analysis produced {len(moments)} candidate moments.")
 
             # ─────────────────────────────────────────────────────────────
             # BRANCH B: YouTube URL (`video_url`)
             # ─────────────────────────────────────────────────────────────
             else:
+                Actor.log.info("=" * 72)
+                Actor.log.info("[Main] === PHASE 2: YOUTUBE METADATA INGESTION ===")
+                Actor.log.info("=" * 72)
                 video_id = extract_video_id(video_url)
                 if not video_id:
                     raise ValueError(f'Could not extract video ID from URL: {video_url}')
 
                 canonical_url = f"https://www.youtube.com/watch?v={video_id}"
-                Actor.log.info(
-                    f"[Main] Mode: YouTube transcript clipper ({video_id}) | "
-                    f"max_clips={max_clips}, max_length={max_length}s"
-                )
-                await Actor.set_status_message(f"Starting analysis of {video_id}...")
+                Actor.log.info(f"[Main] Extracted YouTube Video ID: {video_id}")
+                Actor.log.info(f"[Main] Canonical Video URL: {canonical_url}")
+                await Actor.set_status_message(f"Starting analysis of YouTube video {video_id}...")
 
                 # Configure Apify Residential Proxy if APIFY_PROXY_PASSWORD is set
                 session_id = f"yt_{video_id[:12]}_{int(time.time())}"
@@ -1164,23 +1201,27 @@ async def main() -> None:
                     )
 
                 # Fetch metadata
-                Actor.log.info("[Main] Step 1/3: Fetching video metadata...")
+                Actor.log.info("[Main] Querying YouTube metadata via yt-dlp...")
                 metadata = await asyncio.to_thread(fetch_video_metadata, canonical_url, proxy_url)
                 video_duration = float(metadata.get("duration", 0))
                 video_title = metadata.get("title", video_id)
                 pref_lang = metadata.get("pref_lang")
 
                 if video_duration <= 0:
-                    Actor.log.warning("[Main] Could not determine video duration, defaulting to 3600s")
+                    Actor.log.info("[Main] Note: Could not determine video duration, defaulting to 3600s.")
                     video_duration = 3600.0
 
-                Actor.log.info(
-                    f"[Main] Video: '{video_title}' | Duration: {seconds_to_hhmmss(video_duration)} "
-                    f"| Preferred sub language: {pref_lang}"
-                )
+                Actor.log.info(f"[Main] YouTube Video Metadata Ingested:")
+                Actor.log.info(f"[Main]   • Title: '{video_title}'")
+                Actor.log.info(f"[Main]   • Duration: {seconds_to_hhmmss(video_duration)} ({video_duration:.1f}s)")
+                Actor.log.info(f"[Main]   • Channel/Uploader: '{metadata.get('channel', 'Unknown')}'")
+                Actor.log.info(f"[Main]   • Preferred Subtitle Language: {pref_lang or 'auto'}")
 
                 # Extract transcription ONLY (no audio download)
-                Actor.log.info("[Main] Step 2/3: Extracting video transcript (no audio download)...")
+                Actor.log.info("=" * 72)
+                Actor.log.info("[Main] === PHASE 3 & 4: YOUTUBE TRANSCRIPT EXTRACTION ===")
+                Actor.log.info("=" * 72)
+                Actor.log.info(f"[Main] Extracting video transcript/subtitles (no heavy video/audio download required)...")
                 await Actor.set_status_message("Extracting video transcript...")
 
                 subtitles_dict, subtitle_segments = await asyncio.to_thread(
@@ -1188,20 +1229,26 @@ async def main() -> None:
                 )
 
                 if not subtitle_segments:
-                    Actor.log.warning("[Main] No subtitles or captions found for this video. Pushing empty dataset.")
+                    Actor.log.info("[Main] Note: No subtitles or captions found for this video. Pushing empty dataset.")
                     await Actor.push_data([])
                     await Actor.set_status_message("No subtitles found for this video.")
                     return
 
                 Actor.log.info(
-                    f"[Main] Transcript successfully extracted: {len(subtitle_segments)} segments."
+                    f"[Main] Transcript successfully extracted: {len(subtitle_segments)} dialogue segments."
                 )
 
                 # Detect salient moments from transcript
-                Actor.log.info("[Main] Step 3/3: Determining salient moments from transcript...")
+                Actor.log.info("=" * 72)
+                Actor.log.info("[Main] === PHASE 5: SALIENT MOMENT DETECTION ===")
+                Actor.log.info("=" * 72)
                 await Actor.set_status_message("Analyzing transcript for salient moments...")
 
                 formatted_transcript = format_transcript_for_prompt(subtitle_segments)
+                Actor.log.info(
+                    f"[Main] Analyzing transcript ({len(formatted_transcript)} characters) "
+                    f"to detect top {max_clips} moments (max_length={max_length}s)..."
+                )
 
                 moments = await detect_salient_moments_from_transcript(
                     video_title=video_title,
@@ -1212,23 +1259,27 @@ async def main() -> None:
                 )
 
                 if not moments:
-                    Actor.log.info("[Main] Using heuristic transcript analyzer...")
+                    Actor.log.info("[Main] Gemini returned no moments or is unconfigured. Running heuristic transcript analyzer...")
                     moments = detect_salient_moments_heuristically(
                         subtitle_segments, max_clips, video_duration, max_length=max_length
                     )
+                Actor.log.info(f"[Main] Phase 5 complete: {len(moments)} candidate moments detected.")
 
             # ─────────────────────────────────────────────────────────────
             # Common Output Pipeline
             # ─────────────────────────────────────────────────────────────
             if not moments:
-                Actor.log.warning("[Main] No salient moments detected. Pushing empty dataset.")
+                Actor.log.info("[Main] Note: No salient moments detected. Pushing empty dataset.")
                 await Actor.push_data([])
                 await Actor.set_status_message("No salient moments detected.")
                 return
 
+            Actor.log.info("=" * 72)
+            Actor.log.info(f"[Main] === PHASE 6: CLIP PROCESSING & ENCODING ({len(moments)} moments) ===")
+            Actor.log.info("=" * 72)
             Actor.log.info(
-                f"[Main] Identified {len(moments)} candidate moments. "
-                f"Applying context buffer (max clip length: {max_length}s)..."
+                f"[Main] Applying context buffer (+10s padding, max clip length: {max_length}s) "
+                f"and preparing clips in format '{target_format}'..."
             )
 
             results: list[dict[str, Any]] = []
@@ -1284,6 +1335,14 @@ async def main() -> None:
                 detection_reasons.append("+10s_context_buffer")
 
                 clip_title = headline or f"Highlight #{rank}"
+                score_val = round(float(m.get("score", 85.0)), 1)
+
+                Actor.log.info("-" * 60)
+                Actor.log.info(f"[Main] >>> Processing Clip #{rank}/{len(moments)}: '{clip_title}' [Score: {score_val}/100]")
+                Actor.log.info(
+                    f"[Main]   1. Timing & Context: Core [{seconds_to_hhmmss(core_start)} → {seconds_to_hhmmss(core_end)}] "
+                    f"→ Expanded [{start_hhmmss} → {end_hhmmss}] ({duration}s)"
+                )
 
                 # Generate or enrich Social Media Copy Kit via Gemini
                 copy_kit = await generate_social_copy_kit(
@@ -1298,9 +1357,15 @@ async def main() -> None:
                 hashtags = m.get("hashtags") or copy_kit.get("Hashtag", [])
                 virality_score_desc = m.get("virality_score_description") or copy_kit.get("Virality_score_description", "")
 
+                Actor.log.info(f"[Main]   2. Social Media Copy Kit:")
+                Actor.log.info(f"[Main]      • Viral Hook: \"{viral_hook}\"")
+                Actor.log.info(f"[Main]      • Caption: \"{caption[:80]}...\"")
+                Actor.log.info(f"[Main]      • Hashtags: {' '.join(hashtags)}")
+                Actor.log.info(f"[Main]      • Virality Rationale: \"{virality_score_desc}\"")
+
                 item: dict[str, Any] = {
                     "rank": rank,
-                    "score": round(m.get("score", 85.0), 1),
+                    "score": score_val,
                     "start_time": start_hhmmss,
                     "end_time": end_hhmmss,
                     "duration_seconds": duration,
@@ -1325,16 +1390,17 @@ async def main() -> None:
                         res_h = target_info.get("height") or 1920
                         generate_animated_ass_file(clip_words, ass_path, width=res_w, height=res_h)
                         Actor.log.info(
-                            f"[Main] Generated animated karaoke subtitles for clip #{rank} ({len(clip_words)} words)"
+                            f"[Main]   3. Animated Subtitles: Created '{ass_filename}' with {len(clip_words)} timed words (karaoke style)."
                         )
 
                 if is_local_file and local_video_path and work_dir:
                     # Cut clip from local video using ffmpeg
                     clip_filename = f"clip_{rank}.mp4"
                     clip_path = os.path.join(work_dir, clip_filename)
-                    sub_log = "with animated subtitles" if ass_path else "without subtitles"
+                    sub_log = "with animated karaoke subtitles" if ass_path else "without subtitles"
                     Actor.log.info(
-                        f"[Main] Cutting clip #{rank}: {start_hhmmss} → {end_hhmmss} ({duration}s) | format={target_format} | {sub_log}..."
+                        f"[Main]   4. Video Encoding: Cutting {start_hhmmss} → {end_hhmmss} ({duration}s) | "
+                        f"format={target_format} | {sub_log}..."
                     )
                     await asyncio.to_thread(
                         cut_local_video_clip,
@@ -1346,22 +1412,23 @@ async def main() -> None:
                         ass_path,
                     )
 
-                    Actor.log.info(
-                        f"[Main] Clip #{rank}: Title='{clip_title}' | Viral Hook='{viral_hook}' | Transcript='{clip_transcript[:80]}...'"
-                    )
+                    clip_size_mb = round(os.path.getsize(clip_path) / (1024 * 1024), 2)
+                    Actor.log.info(f"[Main]      • Encoded video file: {clip_filename} ({clip_size_mb} MB)")
 
                     # Upload trimmed clip to Key-Value Store for instant download
                     with open(clip_path, "rb") as cf:
                         clip_bytes = cf.read()
                     await kvs.set_value(clip_filename, clip_bytes, content_type="video/mp4")
                     download_url = await kvs.get_public_url(clip_filename)
-                    clip_size_mb = round(os.path.getsize(clip_path) / (1024 * 1024), 2)
+                    Actor.log.info(f"[Main]   5. Storage: Uploaded clip to Key-Value Store: {download_url}")
 
                     # Optionally store ASS subtitle file in Key-Value Store
                     if ass_path and os.path.exists(ass_path):
                         with open(ass_path, "rb") as af:
                             await kvs.set_value(f"clip_{rank}.ass", af.read(), content_type="text/plain; charset=utf-8")
-                        item["subtitles_url"] = await kvs.get_public_url(f"clip_{rank}.ass")
+                        sub_url = await kvs.get_public_url(f"clip_{rank}.ass")
+                        item["subtitles_url"] = sub_url
+                        Actor.log.info(f"[Main]      • Subtitle ASS file uploaded: {sub_url}")
 
                     item["Title"] = clip_title
                     item["title"] = clip_title
@@ -1404,28 +1471,40 @@ async def main() -> None:
                         )
                     item["direct_timestamp_url"] = timestamp_url
                     item["ffmpeg_command"] = ffmpeg_cmd
+                    Actor.log.info(f"[Main]   3. Clip Reference: Timestamp link: {timestamp_url}")
 
                 results.append(item)
 
             # Push results to dataset and Key-Value Store
+            Actor.log.info("=" * 72)
+            Actor.log.info(f"[Main] === PHASE 7: DATASET STORAGE & EXECUTION SUMMARY ===")
+            Actor.log.info("=" * 72)
+            Actor.log.info(f"[Main] Pushing {len(results)} clips to Apify default dataset...")
             await Actor.push_data(results)
+            Actor.log.info(f"[Main] Writing 'OUTPUT' record to Key-Value Store...")
             await Actor.set_value("OUTPUT", results, content_type="application/json")
 
             Actor.log.info(
-                f"[Main] ✅ Done! Pushed {len(results)} highlight clips to dataset."
+                f"[Main] ✅ Pipeline complete! Successfully stored {len(results)} clips."
             )
             await Actor.set_status_message(
-                f"Completed: {len(results)} highlights found in '{video_title}'"
+                f"Completed: {len(results)} highlights generated for '{video_title}'"
             )
 
+            Actor.log.info("[Main] Generated Clips Overview:")
             for r in results:
                 dl_info = f" | Download: {r['download_url']}" if "download_url" in r else ""
+                hook_info = f" | Hook: \"{r.get('viral_hook')}\"" if r.get("viral_hook") else ""
                 title_info = f" \"{r.get('Title')}\"" if r.get("Title") else ""
                 Actor.log.info(
-                    f"  #{r['rank']}{title_info} [Score: {r['score']}] "
-                    f"{r['start_time']} → {r['end_time']} ({r['duration_seconds']}s){dl_info} "
-                    f"Reasons: {', '.join(r['detection_reasons'][:3])}"
+                    f"[Main]   #{r['rank']}{title_info} [Score: {r['score']}/100] "
+                    f"[{r['start_time']} → {r['end_time']} ({r['duration_seconds']}s)] "
+                    f"Format: {r['target_format']}{dl_info}{hook_info}"
                 )
+
+            Actor.log.info("=" * 72)
+            Actor.log.info("[Main] === PIPELINE EXECUTION COMPLETED SUCCESSFULLY ===")
+            Actor.log.info("=" * 72)
 
         finally:
             # Clean up temporary work directory if created
