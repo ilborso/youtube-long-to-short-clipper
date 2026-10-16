@@ -88,37 +88,121 @@ def get_words_for_clip(
     return clip_words
 
 
+SUBTITLE_STYLE_PROFILES: dict[str, dict[str, Any]] = {
+    "HORMOZI_YELLOW": {
+        "primary": "&H00FFFFFF",
+        "secondary": "&H0000FFFF",
+        "outline": "&H00000000",
+        "back": "&H80000000",
+        "outline_w": 4,
+        "shadow_w": 2,
+        "highlight_tag": "&H00FFFF&",
+        "normal_tag": "&HFFFFFF&",
+        "active_extra": "",
+        "normal_extra": "",
+    },
+    "MRBEAST_BOUNCE": {
+        "primary": "&H00FFFFFF",
+        "secondary": "&H0000FF00",
+        "outline": "&H00000000",
+        "back": "&H80000000",
+        "outline_w": 5,
+        "shadow_w": 3,
+        "highlight_tag": "&H00FF00&",
+        "normal_tag": "&HFFFFFF&",
+        "active_extra": r"\fscx115\fscy115",
+        "normal_extra": r"\fscx100\fscy100",
+    },
+    "CLEAN_MINIMAL": {
+        "primary": "&H00F0F0F0",
+        "secondary": "&H0000D0FF",
+        "outline": "&H60000000",
+        "back": "&H40000000",
+        "outline_w": 2,
+        "shadow_w": 1,
+        "highlight_tag": "&H00D0FF&",
+        "normal_tag": "&HF0F0F0&",
+        "active_extra": "",
+        "normal_extra": "",
+    },
+    "NEON_CYAN": {
+        "primary": "&H00FFFFFF",
+        "secondary": "&H00FFFF00",
+        "outline": "&H00800040",
+        "back": "&H80400020",
+        "outline_w": 3,
+        "shadow_w": 2,
+        "highlight_tag": "&HFFFF00&",
+        "normal_tag": "&HFFFFFF&",
+        "active_extra": "",
+        "normal_extra": "",
+    },
+}
+
+
 def generate_animated_ass_file(
     words: list[dict[str, Any]],
     output_ass_path: str,
     width: int = 1080,
     height: int = 1920,
     words_per_group: int = 4,
-    highlight_color_ass: str = "&H0000FFFF",  # Bright Yellow in ASS style (&HAABBGGRR)
-    normal_color_ass: str = "&H00FFFFFF",     # Pure White in ASS style
-    highlight_tag: str = "&H00FFFF&",         # Inline BGR hex for bright yellow
-    normal_tag: str = "&HFFFFFF&",            # Inline BGR hex for white
+    style_preset: str = "HORMOZI_YELLOW",
+    position: str = "CENTER",
+    hook_text: str | None = None,
 ) -> str:
     """
     Generate an Advanced SubStation Alpha (.ass) file with animated word-by-word karaoke highlighting.
-    Groups words into short, readable chunks (3-4 words) and highlights the currently spoken word.
+    Supports style presets (Hormozi, MrBeast, Minimal, Neon), vertical positions, and opening hook headline.
     """
-    if not words:
+    if not words and not hook_text:
         os.makedirs(os.path.dirname(output_ass_path), exist_ok=True)
         with open(output_ass_path, "w", encoding="utf-8") as f:
             f.write("[Script Info]\nScriptType: v4.00+\n[Events]\n")
         return output_ass_path
 
-    # Compute font size & vertical margin depending on resolution & orientation
+    # Resolve style preset
+    preset_key = (style_preset or "HORMOZI_YELLOW").strip().upper()
+    style_cfg = SUBTITLE_STYLE_PROFILES.get(preset_key, SUBTITLE_STYLE_PROFILES["HORMOZI_YELLOW"])
+
+    normal_color_ass = style_cfg["primary"]
+    highlight_color_ass = style_cfg["secondary"]
+    outline_color_ass = style_cfg["outline"]
+    back_color_ass = style_cfg["back"]
+    outline_w = style_cfg["outline_w"]
+    shadow_w = style_cfg["shadow_w"]
+    highlight_tag = style_cfg["highlight_tag"]
+    normal_tag = style_cfg["normal_tag"]
+    active_extra = style_cfg["active_extra"]
+    normal_extra = style_cfg["normal_extra"]
+
+    # Compute font size & vertical margin depending on resolution, orientation & position
     is_vertical = height > width
+    norm_pos = (position or "CENTER").strip().upper()
+
     if is_vertical:
         font_size = int(width * 0.055)  # e.g. ~59px on 1080w, ~39px on 720w
-        margin_v = int(height * 0.32)    # Safe zone: ~32% from bottom (~614px on 1920h, above caption UI)
+        if norm_pos == "TOP":
+            alignment = 8  # Top Center
+            margin_v = int(height * 0.16)
+        elif norm_pos == "BOTTOM":
+            alignment = 2  # Bottom Center
+            margin_v = int(height * 0.16)
+        else:  # CENTER
+            alignment = 2
+            margin_v = int(height * 0.44)
     else:
-        font_size = int(height * 0.065) # e.g. ~70px on 1080h
-        margin_v = int(height * 0.18)    # ~18% from bottom
+        font_size = int(height * 0.065)
+        if norm_pos == "TOP":
+            alignment = 8
+            margin_v = int(height * 0.14)
+        elif norm_pos == "BOTTOM":
+            alignment = 2
+            margin_v = int(height * 0.14)
+        else:  # CENTER
+            alignment = 2
+            margin_v = int(height * 0.38)
 
-    margin_lr = int(width * 0.08)       # 8% left/right margins
+    margin_lr = int(width * 0.08)  # 8% left/right margins
 
     # Header and Styles
     ass_lines = [
@@ -130,11 +214,31 @@ def generate_animated_ass_file(
         "",
         "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        f"Style: Default,Arial,{font_size},{normal_color_ass},{highlight_color_ass},&H00000000,&H80000000,-1,0,0,0,100,100,1,0,1,4,2,2,{margin_lr},{margin_lr},{margin_v},1",
+        f"Style: Default,Arial,{font_size},{normal_color_ass},{highlight_color_ass},{outline_color_ass},{back_color_ass},-1,0,0,0,100,100,1,0,1,{outline_w},{shadow_w},{alignment},{margin_lr},{margin_lr},{margin_v},1",
+    ]
+
+    has_hook = bool(hook_text and hook_text.strip())
+    if has_hook:
+        hook_font_size = int(width * 0.048) if is_vertical else int(height * 0.052)
+        hook_margin_v = int(height * 0.07) if is_vertical else int(height * 0.09)
+        ass_lines.append(
+            f"Style: HookHeader,Arial,{hook_font_size},&H0000FFFF,&H00FFFFFF,&H00000000,&H90000000,-1,0,0,0,100,100,1,0,1,4,2,8,25,25,{hook_margin_v},1"
+        )
+
+    ass_lines.extend([
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-    ]
+    ])
+
+    # If hook header is present, display it prominently for the opening 4 seconds
+    if has_hook:
+        clean_hook = str(hook_text).strip().upper().replace("\n", " ").replace("\r", "")
+        hook_start = format_ass_time(0.0)
+        hook_end = format_ass_time(4.0)
+        ass_lines.append(
+            f"Dialogue: 1,{hook_start},{hook_end},HookHeader,,0,0,0,,{{\\b1}}{clean_hook}{{\\b0}}"
+        )
 
     # Group words into chunks of `words_per_group`
     groups: list[list[dict[str, Any]]] = []
@@ -172,8 +276,8 @@ def generate_animated_ass_file(
             for j, item in enumerate(group):
                 word_clean = item["word"].upper()
                 if j == idx:
-                    # Highlight active word with bold yellow
-                    parts.append(f"{{\\c{highlight_tag}}}{word_clean}{{\\c{normal_tag}}}")
+                    # Highlight active word with preset tag and optional bounce
+                    parts.append(f"{{{active_extra}\\c{highlight_tag}}}{word_clean}{{{normal_extra}\\c{normal_tag}}}")
                 else:
                     parts.append(word_clean)
 

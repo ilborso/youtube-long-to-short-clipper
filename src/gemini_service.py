@@ -121,6 +121,32 @@ def clean_no_icons(text: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _parse_to_seconds(val: Any) -> float | None:
+    """Parse a time value (float, int, string 'HH:MM:SS', 'MM:SS', or '123s') to float seconds."""
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        val = val.strip().lower()
+        if val.endswith("s"):
+            val = val[:-1].strip()
+        if ":" in val:
+            parts = val.split(":")
+            try:
+                if len(parts) == 3:
+                    return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+                elif len(parts) == 2:
+                    return float(parts[0]) * 60 + float(parts[1])
+            except ValueError:
+                return None
+        try:
+            return float(val)
+        except ValueError:
+            return None
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Prompt templates
 # ---------------------------------------------------------------------------
@@ -150,8 +176,8 @@ You are an expert video editor assistant. I detected a potential highlight clip 
 
 SALIENT_TRANSCRIPT_PROMPT = """\
 You are an expert video editor and viral short-form content producer.
-Your goal is to analyze the timestamped transcription of the YouTube video titled:
-"{video_title}" (Duration: {duration_formatted})
+Your goal is to analyze the timestamped transcription of the video titled:
+"{video_title}" (Duration: {duration_formatted}, {video_duration:.0f} seconds total)
 
 Identify the top {max_clips} most salient, engaging, and memorable moments suitable for YouTube Shorts or viral clips.
 The maximum duration of each final clip must not exceed {max_length} seconds.
@@ -162,6 +188,12 @@ Criteria for Salient Moments:
 - Clearly identify the core salient interval: `core_start_seconds` and `core_end_seconds`.
 - The core moment itself must be roughly 10 to {max_core_length} seconds long so context buffers can be attached without exceeding {max_length}s.
 - Make sure none of the selected moments overlap each other.
+- STRICT GROUNDING & BOUNDS MANDATE:
+  1. The video duration is {duration_formatted} ({video_duration:.0f} seconds total).
+  2. All timestamps MUST be strictly within 0.0 and {video_duration:.0f} seconds.
+  3. You MUST ONLY select moments that actually appear in the timestamped transcript provided below.
+  4. NEVER hallucinate or invent timestamps outside the range of this video (0 to {video_duration:.0f} seconds).
+  5. `core_start_seconds` and `core_end_seconds` MUST be numbers representing total elapsed seconds (e.g. 75.0 for [00:01:15 (75s)]).
 - IMPORTANT: Absolutely NO emojis, emoticons, pictographs, or icons in any field. Use pure, clean text only.
 
 Timestamped Transcript:
@@ -171,8 +203,8 @@ Respond in this EXACT JSON format (no markdown code fences, pure JSON only):
 {{
   "highlights": [
     {{
-      "core_start_seconds": <float>,
-      "core_end_seconds": <float>,
+      "core_start_seconds": <float seconds between 0 and {video_duration:.0f}>,
+      "core_end_seconds": <float seconds between 0 and {video_duration:.0f}>,
       "score": <float between 70.0 and 99.0>,
       "headline": "<punchy hook/title, NO emojis or icons>",
       "detection_reasons": ["<reason1>", "<reason2>"],
@@ -264,8 +296,12 @@ async def refine_highlight(
 
         result = json.loads(text)
 
-        refined_start = float(result.get("refined_start_seconds", start_seconds))
-        refined_end = float(result.get("refined_end_seconds", end_seconds))
+        refined_start = _parse_to_seconds(result.get("refined_start_seconds"))
+        if refined_start is None:
+            refined_start = start_seconds
+        refined_end = _parse_to_seconds(result.get("refined_end_seconds"))
+        if refined_end is None:
+            refined_end = end_seconds
         polished = str(result.get("polished_transcript", raw_transcript or ""))
 
         # Sanity checks
@@ -338,9 +374,11 @@ async def detect_salient_moments_from_transcript(
     transcript_text_with_timestamps: str,
     max_clips: int = 5,
     max_length: int = 60,
+    focus_topic: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Use Gemini AI to analyze the timestamped transcript and return the most salient moments.
+    Supports optional focus_topic to extract highlights around a specific theme or keyword.
     Returns a list of dicts with:
       - core_start_seconds (float)
       - core_end_seconds (float)
@@ -364,11 +402,21 @@ async def detect_salient_moments_from_transcript(
     prompt = SALIENT_TRANSCRIPT_PROMPT.format(
         video_title=video_title,
         duration_formatted=_fmt_time(video_duration),
+        video_duration=video_duration,
         max_clips=max_clips,
         max_length=max_length,
         max_core_length=max_core_length,
         transcript_content=transcript_text_with_timestamps,
     )
+
+    if focus_topic and focus_topic.strip():
+        clean_topic = focus_topic.strip()
+        prompt += (
+            f"\n\nTOPIC FOCUS MANDATE:\n"
+            f"The user has specified an explicit topic focus: '{clean_topic}'.\n"
+            f"You MUST strictly prioritize candidate highlight moments that directly discuss, "
+            f"mention, or relate to '{clean_topic}'. Ensure selected clips are on-topic while maintaining high virality.\n"
+        )
 
     try:
         model_name = get_model_name()
@@ -413,13 +461,30 @@ async def detect_salient_moments_from_transcript(
 
         valid_highlights = []
         for h in raw_highlights:
-            start = float(h.get("core_start_seconds", 0))
-            end = float(h.get("core_end_seconds", 0))
-            if end <= start:
+            start = _parse_to_seconds(h.get("core_start_seconds"))
+            end = _parse_to_seconds(h.get("core_end_seconds"))
+            if start is None or end is None:
                 continue
+
+            if start < 0.0:
+                start = 0.0
+
+            if video_duration > 0:
+                if start >= video_duration:
+                    Actor.log.warning(
+                        f"[GeminiService] Highlight '{h.get('headline', '')}' start ({start:.1f}s) "
+                        f"exceeds video duration ({video_duration:.1f}s). Discarding invalid moment."
+                    )
+                    continue
+                if end > video_duration:
+                    end = video_duration
+
+            if end <= start or (end - start) < 1.0:
+                continue
+
             valid_highlights.append({
-                "core_start_seconds": start,
-                "core_end_seconds": end,
+                "core_start_seconds": round(start, 2),
+                "core_end_seconds": round(end, 2),
                 "score": float(h.get("score", 85.0)),
                 "headline": clean_no_icons(str(h.get("headline", ""))),
                 "detection_reasons": list(h.get("detection_reasons", ["salient_moment"])),
