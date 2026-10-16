@@ -1,6 +1,6 @@
-# Simple AI Video Clipper – 
+# Simple AI Video Clipper - Generate Shorts, Viral title, Hashtag, Download video clips for social media from long videos
 
-Automatically detect the most engaging moments in videos (direct video files or long YouTube videos such as podcasts, interviews, and streams) and generate ready-to-use clips optimized for YouTube Shorts, Instagram Reels, and TikTok.
+Automatically detect the most engaging moments in videos (direct video files or long YouTube videos such as podcasts, interviews, and streams) and generate ready-to-use clips optimized for YouTube Shorts, Instagram Reels, and TikTok. Produce Title, hastag and short description for clips.
 
 ## High-Level Workflow
 
