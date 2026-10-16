@@ -1435,8 +1435,8 @@ async def main() -> None:
                     item["transcript"] = clip_transcript
                     item["clip_filename"] = clip_filename
                     item["clip_size_mb"] = clip_size_mb
+                    item["download_link"] = download_url
                     item["download_url"] = download_url
-                    item["direct_timestamp_url"] = f"{file_video}#t={int(start_sec)}"
                     sub_filter_str = f",ass='clip_{rank}.ass'" if (burn_subtitles and ass_path) else ""
                     if vf:
                         item["ffmpeg_command"] = (
@@ -1493,13 +1493,15 @@ async def main() -> None:
 
             Actor.log.info("[Main] Generated Clips Overview:")
             for r in results:
-                dl_info = f" | Download: {r['download_url']}" if "download_url" in r else ""
+                dl_target = r.get("download_link") or r.get("download_url")
+                dl_info = f" | Download: {dl_target}" if dl_target else ""
+                ts_info = f" | Link: {r.get('direct_timestamp_url')}" if r.get("direct_timestamp_url") else ""
                 hook_info = f" | Hook: \"{r.get('viral_hook')}\"" if r.get("viral_hook") else ""
                 title_info = f" \"{r.get('Title')}\"" if r.get("Title") else ""
                 Actor.log.info(
                     f"[Main]   #{r['rank']}{title_info} [Score: {r['score']}/100] "
                     f"[{r['start_time']} → {r['end_time']} ({r['duration_seconds']}s)] "
-                    f"Format: {r['target_format']}{dl_info}{hook_info}"
+                    f"Format: {r['target_format']}{dl_info}{ts_info}{hook_info}"
                 )
 
             Actor.log.info("=" * 72)

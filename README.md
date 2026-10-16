@@ -78,11 +78,12 @@ Each detected highlight is pushed to the Apify dataset with these fields:
 | `target_format` | String | Selected social media format and resolution profile |
 | `detection_reasons` | Array | Trigger explanations (e.g., `["laughter_spike", "chat_velocity_320%"]`) |
 | `transcript` | String | Spoken text / dialogue transcribed from the highlight segment |
-| `direct_timestamp_url` | String | Direct YouTube or video timestamp link (`...#t=<seconds>`) |
-| `download_url` | String | Direct download link for the cut video clip from Key-Value Store (when using `file_video`) |
+| `direct_timestamp_url` | String | Direct YouTube timestamp link (`https://youtu.be/...#t=<seconds>`) — returned when `video_url` is used |
+| `download_link` | String | Direct download link for the cut video clip from Key-Value Store — returned when `file_video` is used |
+| `download_url` | String | Alias for `download_link` (Key-Value Store MP4 URL) |
 | `clip_filename` | String | Cut video filename (e.g., `clip_1.mp4`) |
 | `subtitles_url` | String | Direct download link for the animated ASS karaoke subtitle file |
-| `ffmpeg_command` | String | Ready-to-use command to extract and format this clip using yt-dlp and ffmpeg |
+| `ffmpeg_command` | String | Ready-to-use command to extract and format this clip using FFmpeg (returned for both modes) |
 
 ### Example Output Record
 
@@ -114,6 +115,7 @@ Each detected highlight is pushed to the Apify dataset with these fields:
     ],
     "transcript": "Oh my god, did you see that?! That was absolutely incredible! I can't believe that just happened!",
     "direct_timestamp_url": "https://youtu.be/jfKfPfyJRdk?t=5025",
+    "download_link": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.mp4",
     "download_url": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.mp4",
     "subtitles_url": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.ass",
     "clip_filename": "clip_1.mp4",
