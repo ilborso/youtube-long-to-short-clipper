@@ -12,9 +12,9 @@
             "editor": "textfield"
         },
         "youtube_url": {
-            "title": "YouTube Video URL",
+            "title": "YouTube Video URL ($)",
             "type": "string",
-            "description": "Valid YouTube video or VOD URL (e.g., https://www.youtube.com/watch?v=..., https://youtu.be/...). Mutually exclusive with 'file_video' (provide one or the other, not both). When specified, analyzes YouTube transcripts and populates 'Download Link' with the YouTube timestamp link while 'download_url' is empty.",
+            "description": "Valid YouTube video or VOD URL (e.g., https://www.youtube.com/watch?v=..., https://youtu.be/...). Mutually exclusive with 'file_video' (provide one or the other, not both). When specified, analyzes YouTube transcripts and populates 'Download Link' with the YouTube timestamp link while 'download_url' is empty. Extra-cost for proxy usage will be charged",
             "editor": "textfield",
             "prefill": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         },
