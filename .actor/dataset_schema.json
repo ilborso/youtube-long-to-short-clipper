@@ -63,17 +63,17 @@
             },
             "download_link": {
                 "type": ["string", "null"],
-                "description": "Direct YouTube timestamp link when 'video_url' is used; null when 'file_video' is used",
+                "description": "Direct YouTube timestamp link when 'youtube_url' is used; null when 'file_video' is used",
                 "example": "https://youtu.be/dQw4w9WgXcQ?t=5025"
             },
             "Download Link": {
                 "type": ["string", "null"],
-                "description": "Direct YouTube timestamp link when 'video_url' is used; null when 'file_video' is used",
+                "description": "Direct YouTube timestamp link when 'youtube_url' is used; null when 'file_video' is used",
                 "example": "https://youtu.be/dQw4w9WgXcQ?t=5025"
             },
             "download_url": {
                 "type": ["string", "null"],
-                "description": "Direct download link for the cut video clip from the Key-Value Store when 'file_video' is used; null when 'video_url' is used",
+                "description": "Direct download link for the cut video clip from the Key-Value Store when 'file_video' is used; null when 'youtube_url' is used",
                 "example": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.mp4"
             },
             "clip_filename": {

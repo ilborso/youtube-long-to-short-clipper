@@ -8,10 +8,10 @@
             "title": "Video File URL (Direct Download & Clip Extraction)",
             "sectionCaption": "Video Input",
             "type": "string",
-            "description": "Direct URL to a video file (.mp4, .mkv, .mov, .webm, etc.) to download and analyze locally. Mutually exclusive with 'video_url' (provide one or the other, not both). When specified, downloads the video, detects salient moments, cuts the video into clips, and populates 'download_url' with the clip link while 'Download Link' is null.",
+            "description": "Direct URL to a video file (.mp4, .mkv, .mov, .webm, etc.) to download and analyze locally. Mutually exclusive with 'youtube_url' (provide one or the other, not both). When specified, downloads the video, detects salient moments, cuts the video into clips, and populates 'download_url' with the clip link while 'Download Link' is null.",
             "editor": "textfield"
         },
-        "video_url": {
+        "youtube_url": {
             "title": "YouTube Video URL",
             "type": "string",
             "description": "Valid YouTube video or VOD URL (e.g., https://www.youtube.com/watch?v=..., https://youtu.be/...). Mutually exclusive with 'file_video' (provide one or the other, not both). When specified, analyzes YouTube transcripts and populates 'Download Link' with the YouTube timestamp link while 'download_url' is empty.",

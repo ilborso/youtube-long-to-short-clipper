@@ -1023,7 +1023,7 @@ async def main() -> None:
         Actor.log.info(f"[Main] Raw input received: {json.dumps(actor_input, default=str)}")
 
         file_video = actor_input.get("file_video", "").strip()
-        video_url = actor_input.get("video_url", "").strip()
+        youtube_url = (actor_input.get("youtube_url") or actor_input.get("video_url") or "").strip()
         max_clips = int(actor_input.get("max_clips", 5))
         max_clips = max(1, min(max_clips, 50))
         max_length = int(actor_input.get("max_length", 60))
@@ -1048,7 +1048,7 @@ async def main() -> None:
 
         Actor.log.info(f"[Main] Configured Pipeline Settings:")
         Actor.log.info(f"[Main]   • Video Input Mode: {'Direct Video File URL' if file_video else 'YouTube Video URL'}")
-        Actor.log.info(f"[Main]   • Input Target: {file_video or video_url}")
+        Actor.log.info(f"[Main]   • Input Target: {file_video or youtube_url}")
         Actor.log.info(f"[Main]   • Max Highlights (Clips): {max_clips}")
         Actor.log.info(f"[Main]   • Max Clip Length: {max_length} seconds")
         Actor.log.info(
@@ -1059,21 +1059,21 @@ async def main() -> None:
         Actor.log.info(f"[Main]   • Gemini AI Status: {gemini_status}")
 
         # Ad-hoc mutual exclusivity validation
-        if file_video and video_url:
+        if file_video and youtube_url:
             Actor.log.info(
-                "[Main] Validation error: 'file_video' and 'video_url' are mutually exclusive. Both were provided."
+                "[Main] Validation error: 'file_video' and 'youtube_url' are mutually exclusive. Both were provided."
             )
             raise ValueError(
-                'Parameters "file_video" and "video_url" are mutually exclusive. '
-                'Please provide either "file_video" for a direct video file OR "video_url" for a YouTube video, but not both.'
+                'Parameters "file_video" and "youtube_url" are mutually exclusive. '
+                'Please provide either "file_video" for a direct video file OR "youtube_url" for a YouTube video, but not both.'
             )
 
-        if not file_video and not video_url:
+        if not file_video and not youtube_url:
             Actor.log.info(
-                "[Main] Validation error: Neither 'file_video' nor 'video_url' was provided in the input."
+                "[Main] Validation error: Neither 'file_video' nor 'youtube_url' was provided in the input."
             )
             raise ValueError(
-                'Either "file_video" (direct video URL) or "video_url" (YouTube URL) must be provided in the input.'
+                'Either "file_video" (direct video URL) or "youtube_url" (YouTube URL) must be provided in the input.'
             )
 
         Actor.log.info("[Main] Mutual exclusivity validated: exactly one video input source provided.")
@@ -1192,15 +1192,15 @@ async def main() -> None:
                         Actor.log.info(f"[Main] Heuristic analysis produced {len(moments)} candidate moments.")
 
             # ─────────────────────────────────────────────────────────────
-            # BRANCH B: YouTube URL (`video_url`)
+            # BRANCH B: YouTube URL (`youtube_url`)
             # ─────────────────────────────────────────────────────────────
             else:
                 Actor.log.info("=" * 72)
                 Actor.log.info("[Main] === PHASE 2: YOUTUBE METADATA INGESTION ===")
                 Actor.log.info("=" * 72)
-                video_id = extract_video_id(video_url)
+                video_id = extract_video_id(youtube_url)
                 if not video_id:
-                    raise ValueError(f'Could not extract video ID from URL: {video_url}')
+                    raise ValueError(f'Could not extract video ID from URL: {youtube_url}')
 
                 canonical_url = f"https://www.youtube.com/watch?v={video_id}"
                 Actor.log.info(f"[Main] Extracted YouTube Video ID: {video_id}")
