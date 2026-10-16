@@ -1504,7 +1504,13 @@ async def main() -> None:
             Actor.log.info(f"[Main] === PHASE 7: DATASET STORAGE & EXECUTION SUMMARY ===")
             Actor.log.info("=" * 72)
             Actor.log.info(f"[Main] Pushing {len(results)} clips to Apify default dataset...")
-            await Actor.push_data(results)
+            try:
+                await Actor.push_data(results)
+            except Exception as push_err:
+                Actor.log.info(f"[Main] Error pushing data to dataset: {push_err}")
+                if hasattr(push_err, "data") and push_err.data:
+                    Actor.log.info(f"[Main] Detailed validation error data: {push_err.data}")
+                raise
             Actor.log.info(f"[Main] Writing 'OUTPUT' record to Key-Value Store...")
             await Actor.set_value("OUTPUT", results, content_type="application/json")
 

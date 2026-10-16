@@ -52,7 +52,7 @@
                 "example": "Oh my god, did you see that?! That was absolutely incredible!"
             },
             "direct_timestamp_url": {
-                "type": "string",
+                "type": ["string", "null"],
                 "description": "Direct YouTube link jumping to the clip start time",
                 "example": "https://youtu.be/dQw4w9WgXcQ?t=5025"
             },
@@ -62,19 +62,34 @@
                 "example": "ffmpeg -ss 01:23:45 -to 01:24:30 -i \"$(yt-dlp -g -f 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' 'https://www.youtube.com/watch?v=dQw4w9WgXcQ')\" -c copy clip_1.mp4"
             },
             "download_link": {
-                "type": "string",
+                "type": ["string", "null"],
+                "description": "Direct YouTube timestamp link when 'video_url' is used; null when 'file_video' is used",
+                "example": "https://youtu.be/dQw4w9WgXcQ?t=5025"
+            },
+            "Download Link": {
+                "type": ["string", "null"],
                 "description": "Direct YouTube timestamp link when 'video_url' is used; null when 'file_video' is used",
                 "example": "https://youtu.be/dQw4w9WgXcQ?t=5025"
             },
             "download_url": {
-                "type": "string",
+                "type": ["string", "null"],
                 "description": "Direct download link for the cut video clip from the Key-Value Store when 'file_video' is used; null when 'video_url' is used",
                 "example": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.mp4"
             },
             "clip_filename": {
-                "type": "string",
+                "type": ["string", "null"],
                 "description": "Filename of the trimmed clip",
                 "example": "clip_1.mp4"
+            },
+            "clip_size_mb": {
+                "type": ["number", "null"],
+                "description": "File size of the trimmed clip in megabytes",
+                "example": 4.21
+            },
+            "title": {
+                "type": ["string", "null"],
+                "description": "Title of the highlight clip",
+                "example": "Epic Game Winning Play"
             },
             "target_format": {
                 "type": "string",
@@ -111,7 +126,7 @@
                 "example": "Score 92/100: High emotional spike with strong curiosity gap and immediate comment trigger."
             },
             "subtitles_url": {
-                "type": "string",
+                "type": ["string", "null"],
                 "description": "Direct download link for the animated ASS karaoke subtitle file",
                 "example": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.ass"
             }
