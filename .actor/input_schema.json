@@ -89,9 +89,103 @@
         "burn_subtitles": {
             "title": "Burn-in Animated Subtitles",
             "type": "boolean",
-            "description": "Burn dynamic animated subtitles (karaoke/Hormozi style) directly into video clips. Maximizes viewer retention on TikTok, Reels, and Shorts.",
+            "description": "Burn dynamic animated subtitles (karaoke style) directly into video clips. Maximizes viewer retention on TikTok, Reels, and Shorts.",
             "default": true,
             "editor": "checkbox"
+        },
+        "subtitle_style": {
+            "title": "Subtitle Style Preset",
+            "sectionCaption": "Creator & Social Media Enhancements",
+            "type": "string",
+            "description": "Visual typography and color palette for animated karaoke subtitles.",
+            "default": "HORMOZI_YELLOW",
+            "editor": "select",
+            "enum": [
+                "HORMOZI_YELLOW",
+                "MRBEAST_BOUNCE",
+                "CLEAN_MINIMAL",
+                "NEON_CYAN"
+            ],
+            "enumTitles": [
+                "Hormozi Style (Bold Yellow with High-Contrast Outline)",
+                "MrBeast Style (Dynamic Green Pop-in Bounce)",
+                "Clean Minimal (Modern Soft White & Gold)",
+                "Neon Cyan (Tech & Gaming Glow)"
+            ]
+        },
+        "subtitle_position": {
+            "title": "Subtitle Vertical Position",
+            "type": "string",
+            "description": "Vertical placement of subtitles on screen. 'Center' is optimized for TikTok/Reels safe-zone.",
+            "default": "CENTER",
+            "editor": "select",
+            "enum": [
+                "BOTTOM",
+                "CENTER",
+                "TOP"
+            ],
+            "enumTitles": [
+                "Bottom (Lower Third)",
+                "Center (Middle Screen Safe-Zone)",
+                "Top (Upper Third)"
+            ]
+        },
+        "burn_hook_header": {
+            "title": "Burn Viral Hook Header Bar",
+            "type": "boolean",
+            "description": "Overlay a high-contrast headline banner showing the viral hook during the opening 4 seconds of each clip.",
+            "default": false,
+            "editor": "checkbox"
+        },
+        "focus_topic": {
+            "title": "Topic / Keyword Focus",
+            "type": "string",
+            "description": "Optional theme or keyword filter (e.g. 'artificial intelligence', 'funny stories'). Directs AI to extract clips strictly related to this topic.",
+            "editor": "textfield"
+        },
+        "normalize_audio": {
+            "title": "Normalize Audio for Mobile (EBU R128)",
+            "type": "boolean",
+            "description": "Normalize audio loudness to -14 LUFS standard for punchy, clear speech on mobile devices and social feeds.",
+            "default": false,
+            "editor": "checkbox"
+        },
+        "generate_thumbnails": {
+            "title": "Generate High-Res Thumbnail Images",
+            "type": "boolean",
+            "description": "Extract a high-resolution JPEG cover frame from the peak emotional moment of each clip and upload it to the Key-Value Store.",
+            "default": false,
+            "editor": "checkbox"
+        },
+        "layout_mode": {
+            "title": "Video Layout & Composition Mode",
+            "type": "string",
+            "description": "Composition layout for vertical/social conversions. Supports standard center crop, podcast interview split stack, or blurred background bars.",
+            "default": "AUTO_CENTER_CROP",
+            "editor": "select",
+            "enum": [
+                "AUTO_CENTER_CROP",
+                "PODCAST_SPLIT_STACK",
+                "BLURRED_BARS"
+            ],
+            "enumTitles": [
+                "Auto Center Crop (Standard Smart Center)",
+                "Podcast Split Stack (Guest on Top, Host on Bottom)",
+                "Blurred Bars (Original Video with Blurred Background)"
+            ]
+        },
+        "smart_face_tracking": {
+            "title": "Smart Face Tracking (Auto-Reframe)",
+            "type": "boolean",
+            "description": "Automatically detect faces in video frames and adjust the vertical crop to track the primary speaker instead of a static center crop.",
+            "default": false,
+            "editor": "checkbox"
+        },
+        "webhook_url": {
+            "title": "Webhook URL (Zapier / Make.com / Automation)",
+            "type": "string",
+            "description": "Optional HTTP/HTTPS webhook URL. Sends a POST notification with complete clip URLs, titles, and social copy upon completion.",
+            "editor": "textfield"
         }
     },
     "required": []

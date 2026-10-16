@@ -868,11 +868,15 @@ TARGET_FORMAT_PROFILES: dict[str, dict[str, Any]] = {
 DEFAULT_TARGET_FORMAT = "INSTAGRAM_REELS_VERTICAL_9_16_HIGHRES_1080P_MP4"
 
 
-def get_video_filter_for_format(target_format: str | None) -> str | None:
+def get_video_filter_for_format(
+    target_format: str | None,
+    layout_mode: str = "AUTO_CENTER_CROP",
+    crop_x_offset_pct: float | None = None,
+) -> str | None:
     """
-    Return the ffmpeg video filter (-vf) to scale and center-crop to target format.
-    Calculates scale keeping aspect ratio, performs center crop with even offsets
-    for yuv420p chromatic subsampling, and forces square sample aspect ratio (SAR=1).
+    Return the ffmpeg video filter (-vf) to scale and compose the clip into the target format.
+    Supports AUTO_CENTER_CROP (with optional smart face tracking offset),
+    PODCAST_SPLIT_STACK (guest top, host bottom), and BLURRED_BARS (original centered over blurred BG).
     """
     if not target_format:
         return None
@@ -881,11 +885,117 @@ def get_video_filter_for_format(target_format: str | None) -> str | None:
         return None
     w = profile["width"]
     h = profile["height"]
+
+    norm_layout = (layout_mode or "AUTO_CENTER_CROP").strip().upper()
+
+    # 1. Blurred Bars Layout (maintains original aspect ratio in center with blurred background)
+    if norm_layout == "BLURRED_BARS":
+        return (
+            f"split[bg][fg];"
+            f"[bg]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=25:5[bg_blur];"
+            f"[fg]scale={w}:{h}:force_original_aspect_ratio=decrease[fg_scaled];"
+            f"[bg_blur][fg_scaled]overlay=(W-w)/2:(H-h)/2,setsar=1"
+        )
+
+    # 2. Podcast Split Stack (widescreen interview: left half on top, right half on bottom)
+    if norm_layout == "PODCAST_SPLIT_STACK" and h > w:
+        half_h = h // 2
+        return (
+            f"split[left][right];"
+            f"[left]crop=in_w/2:in_h:0:0,scale={w}:{half_h}:force_original_aspect_ratio=increase,crop={w}:{half_h}[top];"
+            f"[right]crop=in_w/2:in_h:in_w/2:0,scale={w}:{half_h}:force_original_aspect_ratio=increase,crop={w}:{half_h}[bot];"
+            f"[top][bot]vstack,setsar=1"
+        )
+
+    # 3. Smart Face Tracking crop offset (if face detected)
+    if crop_x_offset_pct is not None and 0.0 <= crop_x_offset_pct <= 1.0:
+        offset_expr = f"clip(trunc((in_w*{crop_x_offset_pct:.3f})-({w}/2)),0,in_w-{w})"
+        return (
+            f"scale={w}:{h}:force_original_aspect_ratio=increase,"
+            f"crop={w}:{h}:'trunc({offset_expr}/2)*2':'trunc((in_h-{h})/4)*2',"
+            f"setsar=1"
+        )
+
+    # 4. Standard Center Crop (default)
     return (
         f"scale={w}:{h}:force_original_aspect_ratio=increase,"
         f"crop={w}:{h}:'trunc((in_w-{w})/4)*2':'trunc((in_h-{h})/4)*2',"
         f"setsar=1"
     )
+
+
+def detect_face_x_center(video_path: str, timestamp_sec: float) -> float | None:
+    """
+    Extract a sample video frame and detect the primary speaker's horizontal center (0.0 to 1.0).
+    Uses OpenCV Haar cascades if available, falling back gracefully to None (center crop).
+    """
+    import tempfile
+    frame_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
+            frame_path = tf.name
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(max(0.0, float(timestamp_sec))),
+            "-i", video_path,
+            "-vframes", "1",
+            "-q:v", "2",
+            frame_path,
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        if res.returncode != 0 or not os.path.exists(frame_path) or os.path.getsize(frame_path) < 500:
+            if frame_path and os.path.exists(frame_path):
+                os.remove(frame_path)
+            return None
+
+        # Check for OpenCV
+        try:
+            import cv2
+            img = cv2.imread(frame_path)
+            if img is not None:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+                face_cascade = cv2.CascadeClassifier(cascade_path)
+                faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(60, 60))
+                if len(faces) > 0:
+                    largest = max(faces, key=lambda f: f[2] * f[3])
+                    fx, fy, fw, fh = largest
+                    frame_w = img.shape[1]
+                    center_pct = (fx + fw / 2.0) / float(frame_w)
+                    if frame_path and os.path.exists(frame_path):
+                        os.remove(frame_path)
+                    return round(float(center_pct), 3)
+        except Exception:
+            pass
+
+        if frame_path and os.path.exists(frame_path):
+            os.remove(frame_path)
+    except Exception:
+        if frame_path and os.path.exists(frame_path):
+            try:
+                os.remove(frame_path)
+            except OSError:
+                pass
+    return None
+
+
+def extract_thumbnail_frame(video_path: str, timestamp_sec: float, output_path: str) -> bool:
+    """Extract a high-resolution JPEG thumbnail from the video at a given timestamp."""
+    try:
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(max(0.0, float(timestamp_sec))),
+            "-i", video_path,
+            "-vframes", "1",
+            "-q:v", "2",
+            output_path,
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        return res.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 500
+    except Exception as e:
+        Actor.log.info(f"[Main] Thumbnail extraction error: {e}")
+        return False
 
 
 def cut_local_video_clip(
@@ -895,14 +1005,19 @@ def cut_local_video_clip(
     output_path: str,
     target_format: str | None = None,
     ass_subtitle_path: str | None = None,
+    layout_mode: str = "AUTO_CENTER_CROP",
+    crop_x_offset_pct: float | None = None,
+    normalize_audio: bool = False,
 ) -> str:
     """
     Accurately cut a video segment using ffmpeg and re-encode to the chosen social media target format.
-    Optionally burns in animated ASS karaoke subtitles.
-    Ensures clean cuts at keyframes, proper aspect ratio / resolution cropping, yuv420p color format,
-    and faststart flags for instant web/social playback.
+    Optionally burns in animated ASS karaoke subtitles, normalizes audio to -14 LUFS, and applies custom layout.
     """
-    vf = get_video_filter_for_format(target_format)
+    vf = get_video_filter_for_format(
+        target_format,
+        layout_mode=layout_mode,
+        crop_x_offset_pct=crop_x_offset_pct,
+    )
 
     # Prepare subtitle filter candidates if ASS file exists
     sub_filters = []
@@ -918,6 +1033,10 @@ def cut_local_video_clip(
         candidates.append((vf, "format only (no subtitles)"))
     candidates.append((None, "direct stream copy"))
 
+    audio_args = ["-c:a", "aac", "-b:a", "128k"]
+    if normalize_audio:
+        audio_args.extend(["-af", "loudnorm=I=-14:LRA=7:TP=-1.5"])
+
     success = False
     for filter_str, desc in candidates:
         if filter_str is not None:
@@ -931,8 +1050,7 @@ def cut_local_video_clip(
                 "-preset", "veryfast",
                 "-crf", "22",
                 "-pix_fmt", "yuv420p",
-                "-c:a", "aac",
-                "-b:a", "128k",
+                *audio_args,
                 "-movflags", "+faststart",
                 "-avoid_negative_ts", "make_zero",
                 output_path,
@@ -1043,6 +1161,27 @@ async def main() -> None:
         format_name = format_profile["name"]
         burn_subtitles = bool(actor_input.get("burn_subtitles", True))
 
+        # Creator enhancement parameters (all optional with safe defaults)
+        subtitle_style = str(actor_input.get("subtitle_style") or "HORMOZI_YELLOW").strip().upper()
+        if subtitle_style not in ("HORMOZI_YELLOW", "MRBEAST_BOUNCE", "CLEAN_MINIMAL", "NEON_CYAN"):
+            subtitle_style = "HORMOZI_YELLOW"
+
+        subtitle_position = str(actor_input.get("subtitle_position") or "CENTER").strip().upper()
+        if subtitle_position not in ("BOTTOM", "CENTER", "TOP"):
+            subtitle_position = "CENTER"
+
+        burn_hook_header = bool(actor_input.get("burn_hook_header", False))
+        focus_topic = str(actor_input.get("focus_topic") or "").strip()
+        normalize_audio = bool(actor_input.get("normalize_audio", False))
+        generate_thumbnails = bool(actor_input.get("generate_thumbnails", False))
+
+        layout_mode = str(actor_input.get("layout_mode") or "AUTO_CENTER_CROP").strip().upper()
+        if layout_mode not in ("AUTO_CENTER_CROP", "PODCAST_SPLIT_STACK", "BLURRED_BARS"):
+            layout_mode = "AUTO_CENTER_CROP"
+
+        smart_face_tracking = bool(actor_input.get("smart_face_tracking", False))
+        webhook_url = str(actor_input.get("webhook_url") or "").strip()
+
         has_gemini = bool(os.environ.get("GEMINI_API_KEY", "").strip())
         gemini_status = "Available (Active)" if has_gemini else "Not set (Using algorithmic/audio fallbacks)"
 
@@ -1055,7 +1194,16 @@ async def main() -> None:
             f"[Main]   • Target Video Format: {target_format} "
             f"({format_name} - {format_profile.get('width', 'auto')}x{format_profile.get('height', 'auto')}, {format_profile.get('aspect', 'original')})"
         )
-        Actor.log.info(f"[Main]   • Burn Animated Subtitles: {burn_subtitles} (Karaoke ASS style)")
+        Actor.log.info(f"[Main]   • Burn Animated Subtitles: {burn_subtitles} (Style: {subtitle_style}, Pos: {subtitle_position})")
+        Actor.log.info(f"[Main]   • Burn Viral Hook Header: {burn_hook_header}")
+        if focus_topic:
+            Actor.log.info(f"[Main]   • Focus Topic Filter: '{focus_topic}'")
+        Actor.log.info(f"[Main]   • Normalize Audio (-14 LUFS): {normalize_audio}")
+        Actor.log.info(f"[Main]   • Generate Thumbnails: {generate_thumbnails}")
+        Actor.log.info(f"[Main]   • Video Layout Mode: {layout_mode}")
+        Actor.log.info(f"[Main]   • Smart Face Tracking: {smart_face_tracking}")
+        if webhook_url:
+            Actor.log.info(f"[Main]   • Webhook Notification Target: {webhook_url}")
         Actor.log.info(f"[Main]   • Gemini AI Status: {gemini_status}")
 
         # Ad-hoc mutual exclusivity validation
@@ -1171,6 +1319,7 @@ async def main() -> None:
                         transcript_text_with_timestamps=formatted_transcript,
                         max_clips=max_clips,
                         max_length=max_length,
+                        focus_topic=focus_topic,
                     )
                     Actor.log.info(f"[Main] Gemini AI returned {len(moments)} candidate highlight moments.")
 
@@ -1274,6 +1423,7 @@ async def main() -> None:
                     transcript_text_with_timestamps=formatted_transcript,
                     max_clips=max_clips,
                     max_length=max_length,
+                    focus_topic=focus_topic,
                 )
 
                 if not moments:
@@ -1395,30 +1545,51 @@ async def main() -> None:
                     "detection_reasons": detection_reasons,
                 }
 
-                vf = get_video_filter_for_format(target_format)
+                crop_x_offset: float | None = None
+                if smart_face_tracking and is_local_file and local_video_path:
+                    mid_sec = (start_sec + end_sec) / 2
+                    crop_x_offset = await asyncio.to_thread(detect_face_x_center, local_video_path, mid_sec)
+                    if crop_x_offset is not None:
+                        Actor.log.info(f"[Main]   Face Tracking: Speaker face detected at x={crop_x_offset*100:.1f}%. Adjusting crop.")
+
+                vf = get_video_filter_for_format(
+                    target_format,
+                    layout_mode=layout_mode,
+                    crop_x_offset_pct=crop_x_offset,
+                )
 
                 ass_path: str | None = None
-                if is_local_file and local_video_path and work_dir and burn_subtitles:
-                    clip_words = get_words_for_clip(all_words, subtitle_segments, start_sec, end_sec)
-                    if clip_words:
-                        ass_filename = f"clip_{rank}.ass"
-                        ass_path = os.path.join(work_dir, ass_filename)
-                        target_info = TARGET_FORMAT_PROFILES.get(target_format, {})
-                        res_w = target_info.get("width") or 1080
-                        res_h = target_info.get("height") or 1920
-                        generate_animated_ass_file(clip_words, ass_path, width=res_w, height=res_h)
-                        Actor.log.info(
-                            f"[Main]   3. Animated Subtitles: Created '{ass_filename}' with {len(clip_words)} timed words (karaoke style)."
-                        )
+                if is_local_file and local_video_path and work_dir and (burn_subtitles or burn_hook_header):
+                    clip_words = get_words_for_clip(all_words, subtitle_segments, start_sec, end_sec) if burn_subtitles else []
+                    ass_filename = f"clip_{rank}.ass"
+                    ass_path = os.path.join(work_dir, ass_filename)
+                    target_info = TARGET_FORMAT_PROFILES.get(target_format, {})
+                    res_w = target_info.get("width") or 1080
+                    res_h = target_info.get("height") or 1920
+                    hook_for_ass = viral_hook if burn_hook_header else None
+                    generate_animated_ass_file(
+                        clip_words,
+                        ass_path,
+                        width=res_w,
+                        height=res_h,
+                        style_preset=subtitle_style,
+                        position=subtitle_position,
+                        hook_text=hook_for_ass,
+                    )
+                    sub_details = f"with {len(clip_words)} timed words (style: {subtitle_style}, pos: {subtitle_position})"
+                    if burn_hook_header:
+                        sub_details += " + viral hook header banner"
+                    Actor.log.info(f"[Main]   3. Animated Subtitles: Created '{ass_filename}' {sub_details}.")
 
                 if is_local_file and local_video_path and work_dir:
                     # Cut clip from local video using ffmpeg
                     clip_filename = f"clip_{rank}.mp4"
                     clip_path = os.path.join(work_dir, clip_filename)
-                    sub_log = "with animated karaoke subtitles" if ass_path else "without subtitles"
+                    sub_log = "with subtitles/hook" if ass_path else "without subtitles"
+                    audio_log = " + loudnorm -14 LUFS" if normalize_audio else ""
                     Actor.log.info(
                         f"[Main]   4. Video Encoding: Cutting {start_hhmmss} → {end_hhmmss} ({duration}s) | "
-                        f"format={target_format} | {sub_log}..."
+                        f"format={target_format} | layout={layout_mode} | {sub_log}{audio_log}..."
                     )
                     await asyncio.to_thread(
                         cut_local_video_clip,
@@ -1428,6 +1599,9 @@ async def main() -> None:
                         clip_path,
                         target_format,
                         ass_path,
+                        layout_mode,
+                        crop_x_offset,
+                        normalize_audio,
                     )
 
                     clip_size_mb = round(os.path.getsize(clip_path) / (1024 * 1024), 2)
@@ -1448,6 +1622,20 @@ async def main() -> None:
                         item["subtitles_url"] = sub_url
                         Actor.log.info(f"[Main]      • Subtitle ASS file uploaded: {sub_url}")
 
+                    # Generate high-resolution cover thumbnail if requested
+                    thumbnail_url: str | None = None
+                    if generate_thumbnails:
+                        thumb_filename = f"clip_{rank}_thumb.jpg"
+                        thumb_path = os.path.join(work_dir, thumb_filename)
+                        mid_sec = (start_sec + end_sec) / 2
+                        thumb_ok = await asyncio.to_thread(extract_thumbnail_frame, local_video_path, mid_sec, thumb_path)
+                        if thumb_ok and os.path.exists(thumb_path):
+                            with open(thumb_path, "rb") as tf:
+                                await kvs.set_value(thumb_filename, tf.read(), content_type="image/jpeg")
+                            thumbnail_url = await kvs.get_public_url(thumb_filename)
+                            Actor.log.info(f"[Main]      • Thumbnail image uploaded: {thumbnail_url}")
+                    item["thumbnail_url"] = thumbnail_url
+
                     clean_title = clean_no_icons(clip_title)
                     item["Title"] = clean_title
                     item["title"] = clean_title
@@ -1457,12 +1645,13 @@ async def main() -> None:
                     item["download_url"] = download_url
                     item["download_link"] = None
                     item["Download Link"] = None
-                    sub_filter_str = f",ass='clip_{rank}.ass'" if (burn_subtitles and ass_path) else ""
+                    sub_filter_str = f",ass='clip_{rank}.ass'" if ((burn_subtitles or burn_hook_header) and ass_path) else ""
+                    audio_cmd_str = "-af loudnorm=I=-14:LRA=7:TP=-1.5 -c:a aac -b:a 128k" if normalize_audio else "-c:a aac -b:a 128k"
                     if vf:
                         item["ffmpeg_command"] = (
                             f'ffmpeg -ss {start_hhmmss} -to {end_hhmmss} -i "{file_video}" '
                             f'-vf "{vf}{sub_filter_str}" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 22 '
-                            f'-c:a aac -b:a 128k -movflags +faststart {clip_filename}'
+                            f'{audio_cmd_str} -movflags +faststart {clip_filename}'
                         )
                     else:
                         item["ffmpeg_command"] = (
@@ -1478,14 +1667,16 @@ async def main() -> None:
                     item["download_link"] = timestamp_url
                     item["Download Link"] = timestamp_url
                     item["direct_timestamp_url"] = timestamp_url
+                    item["thumbnail_url"] = None
                     sub_filter_str = f",ass='clip_{rank}.ass'" if burn_subtitles else ""
+                    audio_cmd_str = "-af loudnorm=I=-14:LRA=7:TP=-1.5 -c:a aac -b:a 128k" if normalize_audio else "-c:a aac -b:a 128k"
                     if vf:
                         ffmpeg_cmd = (
                             f'ffmpeg -ss {start_hhmmss} -to {end_hhmmss} '
                             f'-i "$(yt-dlp -g -f \'bestvideo[ext=mp4]+bestaudio[ext=m4a]'
                             f'/best[ext=mp4]/best\' \'{canonical_url}\')" '
                             f'-vf "{vf}{sub_filter_str}" -c:v libx264 -pix_fmt yuv420p -preset fast -crf 22 '
-                            f'-c:a aac -b:a 128k -movflags +faststart clip_{rank}.mp4'
+                            f'{audio_cmd_str} -movflags +faststart clip_{rank}.mp4'
                         )
                     else:
                         ffmpeg_cmd = (
@@ -1526,6 +1717,29 @@ async def main() -> None:
                 Actor.log.info("[Main] Emitting Apify charge event 'proxy-enabled' for YouTube processing...")
                 await Actor.charge(event_name='proxy-enabled')
                 Actor.log.info("[Main] Successfully emitted charge event 'proxy-enabled'.")
+
+            # If webhook_url is specified, dispatch HTTP POST notification with results
+            if webhook_url and webhook_url.startswith(("http://", "https://")):
+                Actor.log.info(f"[Main] Dispatching webhook notification to: {webhook_url}")
+                try:
+                    import urllib.request
+                    wh_data = json.dumps({
+                        "event": "ACTOR_RUN_COMPLETED",
+                        "status": "SUCCEEDED",
+                        "video_title": video_title,
+                        "clips_count": len(results),
+                        "results": results,
+                    }, default=str).encode("utf-8")
+                    wh_req = urllib.request.Request(
+                        webhook_url,
+                        data=wh_data,
+                        headers={"Content-Type": "application/json", "User-Agent": "SimpleAIVideoClipper/1.0"},
+                        method="POST"
+                    )
+                    with urllib.request.urlopen(wh_req, timeout=15) as wh_resp:
+                        Actor.log.info(f"[Main] Webhook responded with status code: {wh_resp.status}")
+                except Exception as wh_err:
+                    Actor.log.info(f"[Main] Warning: Could not deliver webhook payload: {wh_err}")
 
             Actor.log.info("[Main] Generated Clips Overview:")
             for r in results:

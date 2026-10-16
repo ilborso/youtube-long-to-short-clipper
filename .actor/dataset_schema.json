@@ -129,6 +129,11 @@
                 "type": ["string", "null"],
                 "description": "Direct download link for the animated ASS karaoke subtitle file",
                 "example": "https://api.apify.com/v2/key-value-stores/.../records/clip_1.ass"
+            },
+            "thumbnail_url": {
+                "type": ["string", "null"],
+                "description": "Direct download link for the high-resolution JPEG cover thumbnail",
+                "example": "https://api.apify.com/v2/key-value-stores/.../records/clip_1_thumb.jpg"
             }
         }
     },
@@ -153,6 +158,7 @@
                     "direct_timestamp_url",
                     "download_link",
                     "download_url",
+                    "thumbnail_url",
                     "ffmpeg_command"
                 ]
             },

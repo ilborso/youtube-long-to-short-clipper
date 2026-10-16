@@ -338,9 +338,11 @@ async def detect_salient_moments_from_transcript(
     transcript_text_with_timestamps: str,
     max_clips: int = 5,
     max_length: int = 60,
+    focus_topic: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Use Gemini AI to analyze the timestamped transcript and return the most salient moments.
+    Supports optional focus_topic to extract highlights around a specific theme or keyword.
     Returns a list of dicts with:
       - core_start_seconds (float)
       - core_end_seconds (float)
@@ -369,6 +371,15 @@ async def detect_salient_moments_from_transcript(
         max_core_length=max_core_length,
         transcript_content=transcript_text_with_timestamps,
     )
+
+    if focus_topic and focus_topic.strip():
+        clean_topic = focus_topic.strip()
+        prompt += (
+            f"\n\nTOPIC FOCUS MANDATE:\n"
+            f"The user has specified an explicit topic focus: '{clean_topic}'.\n"
+            f"You MUST strictly prioritize candidate highlight moments that directly discuss, "
+            f"mention, or relate to '{clean_topic}'. Ensure selected clips are on-topic while maintaining high virality.\n"
+        )
 
     try:
         model_name = get_model_name()
