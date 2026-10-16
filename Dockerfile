@@ -4,6 +4,10 @@ FROM apify/actor-python:3.11
 # Switch to root to install system-level dependencies
 USER root
 
+# Prevent debconf interactive prompts during apt-get
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
 # Install system dependencies, ffmpeg, and build tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
